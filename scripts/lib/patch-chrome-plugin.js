@@ -53,13 +53,15 @@ function patchFileFirstMatch(filePath, { label, oldTexts, newText, alreadyText =
     return;
   }
 
-  const oldText = oldTexts.find((candidate) => source.includes(candidate));
-  if (!oldText) {
+  const match = oldTexts
+    .map((candidate) => typeof candidate === "string" ? { oldText: candidate, newText } : candidate)
+    .find((candidate) => source.includes(candidate.oldText));
+  if (!match) {
     warn(`${path.basename(filePath)} missing patch target for ${label}`);
     return;
   }
 
-  fs.writeFileSync(filePath, source.replace(oldText, newText), "utf8");
+  fs.writeFileSync(filePath, source.replace(match.oldText, match.newText ?? newText), "utf8");
   console.log(`Patched ${path.basename(filePath)}: ${label}`);
 }
 
@@ -241,15 +243,20 @@ ${linuxNativeHostManifestFallback}
   },
 ]);
 
-patchFile(path.join(scriptsDir, "browser-client.mjs"), [
-  {
-    label: "Linux Chrome profile path",
-    oldText:
-      'var Tc=GF(VF(),WF()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");',
-    newText:
-      'var Tc=GF(VF(),WF()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":WF()==="linux"?".config/google-chrome":"Library/Application Support/Google/Chrome");',
-  },
-]);
+patchFileFirstMatch(path.join(scriptsDir, "browser-client.mjs"), {
+  label: "Linux Chrome profile path",
+  oldTexts: [
+    {
+      oldText: 'var Tc=GF(VF(),WF()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");',
+      newText: 'var Tc=GF(VF(),WF()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":WF()==="linux"?".config/google-chrome":"Library/Application Support/Google/Chrome");',
+    },
+    {
+      oldText: 'var Ic=eO(tO(),rO()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":"Library/Application Support/Google/Chrome");',
+      newText: 'var Ic=eO(tO(),rO()==="win32"?"AppData\\\\Local\\\\Google\\\\Chrome\\\\User Data":rO()==="linux"?".config/google-chrome":"Library/Application Support/Google/Chrome");',
+    },
+  ],
+  alreadyText: '".config/google-chrome"',
+});
 
 patchFile(path.join(scriptsDir, "installed-browsers.js"), [
   {

@@ -130,14 +130,23 @@ install_linux_executable_resource() {
     local source="$1"
     local destination="$2"
     local label="$3"
+    local log_level="${4:-warn}"
 
     if [ ! -f "$source" ]; then
-        warn "Browser Use $label not found in upstream resources; skipping"
+        if [ "$log_level" = "info" ]; then
+            info "Browser Use $label not found in upstream resources; skipping"
+        else
+            warn "Browser Use $label not found in upstream resources; skipping"
+        fi
         return 1
     fi
 
     if ! is_host_linux_elf_executable "$source"; then
-        warn "Browser Use $label is not a Linux executable for $ARCH; skipping"
+        if [ "$log_level" = "info" ]; then
+            info "Browser Use $label is not a Linux executable for $ARCH; skipping"
+        else
+            warn "Browser Use $label is not a Linux executable for $ARCH; skipping"
+        fi
         return 1
     fi
 
@@ -220,15 +229,22 @@ install_browser_use_node_repl_resource() {
 
     for source in \
         "${CODEX_LINUX_NODE_REPL_SOURCE:-}" \
-        "${CODEX_NODE_REPL_PATH:-}" \
-        "${XDG_CACHE_HOME:-$HOME/.cache}/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl" \
-        "$upstream_source"
+        "${CODEX_NODE_REPL_PATH:-}"
     do
         [ -n "$source" ] || continue
         if install_linux_executable_resource "$source" "$destination" "node_repl runtime"; then
             return 0
         fi
     done
+
+    source="${XDG_CACHE_HOME:-$HOME/.cache}/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl"
+    if [ -f "$source" ] && install_linux_executable_resource "$source" "$destination" "node_repl runtime"; then
+        return 0
+    fi
+
+    if [ -n "$upstream_source" ] && install_linux_executable_resource "$upstream_source" "$destination" "node_repl runtime" "info"; then
+        return 0
+    fi
 
     install_node_repl_from_primary_runtime_archive "$destination"
 }
@@ -519,7 +535,7 @@ install_bundled_plugin_resources() {
 
     write_bundled_plugins_marketplace "$source_marketplace" "$bundled_plugins_dir/.agents/plugins/marketplace.json" "$include_browser" "$include_chrome" "$include_computer_use"
 
-    install_linux_executable_resource "$upstream_resources/node" "$resources_dir/node" "node runtime" || true
+    install_linux_executable_resource "$upstream_resources/node" "$resources_dir/node" "node runtime" "info" || true
     install_browser_use_node_repl_resource "$upstream_resources/node_repl" "$resources_dir/node_repl" || true
 
     info "Linux-safe bundled plugins installed"

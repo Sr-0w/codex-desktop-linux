@@ -201,14 +201,6 @@ const WEBVIEW_ASSET_PATCHES = [
     skipDescription: "app sunset gate patch",
   },
   {
-    name: "opaque-window-default-code-theme",
-    ciPolicy: OPTIONAL,
-    pattern: /^code-theme-.*\.js$/,
-    apply: applyLinuxOpaqueWindowsDefaultPatch,
-    missingDescription: "code theme bundle",
-    skipDescription: "translucent sidebar default patch",
-  },
-  {
     name: "opaque-window-default-general-settings",
     ciPolicy: OPTIONAL,
     pattern: /^general-settings-.*\.js$/,

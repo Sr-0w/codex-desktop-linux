@@ -28,13 +28,97 @@ function buildBridgeSource({ childProcessVar, electronVar, fsVar, pathVar }) {
   const showUpdateMessage =
     electronVar == null
       ? "async function codexLinuxShowUpdateMessage(){}"
-      : `async function codexLinuxShowUpdateMessage(e,n){try{await ${electronVar}.dialog?.showMessageBox({type:\`info\`,buttons:[\`OK\`],defaultId:0,noLink:!0,message:e,detail:n})}catch{}}`;
+      : `async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{await ${electronVar}.dialog?.showMessageBox({type:\`info\`,buttons:[\`OK\`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}`;
   const installAfterQuit = buildInstallAfterQuitSource(childProcessVar);
   const quitForUpdate = buildQuitForUpdateSource(electronVar, true);
   return `function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}`;
 }
 
+function buildBootstrapBridgeSource({ childProcessVar, electronVar, fsVar, pathVar }) {
+  return `${buildBridgeSource({ childProcessVar, electronVar, fsVar, pathVar })};function codexLinuxCreatePackageUpdateManager(e){let t=!1,n=\`idle\`,r=null,i=()=>{try{let e=codexLinuxReadUpdateState(),r=e?.status;t=r===\`ready_to_install\`||r===\`waiting_for_app_exit\`,n=codexLinuxUpdateLifecycleState(r);return e}catch{return null}},a=()=>{try{e.send({type:\`app-update-ready-changed\`,isUpdateReady:t}),e.send({type:\`app-update-lifecycle-state-changed\`,lifecycleState:n}),e.send({type:\`app-update-install-progress-changed\`,installProgressPercent:r})}catch{}};i();let o=()=>{e.allowQuit?.();codexLinuxQuitForUpdate()};return{manager:{getIsUpdateReady:()=>t,getUpdateLifecycleState:()=>n,getInstallProgressPercent:()=>r,checkForUpdates:async()=>{n=\`checking\`,a();try{await codexLinuxRunUpdateManager([\`check-now\`]),i(),a()}catch(e){n=t?\`ready\`:\`idle\`,a();throw e}},installUpdatesIfAvailable:async()=>{i();if(!t)return;r=0,n=\`installing\`,a();try{let e=await codexLinuxRunUpdateManager([\`install-ready\`]),s=i();if(s?.status===\`waiting_for_app_exit\`){r=null,n=\`ready\`,a(),o();return}r=null,a(),e.stdout?.includes(\`already installed\`)?await codexLinuxShowUpdateMessage(\`Codex Desktop update\`,\`The ready update is already installed.\`):e.stdout?.includes(\`No Codex Desktop update is ready\`)&&await codexLinuxShowUpdateMessage(\`Codex Desktop update\`,\`There is no rebuilt update waiting to install.\`)}catch(e){r=null,n=t?\`ready\`:\`idle\`,a();throw e}}},quitForUpdate:o,refresh:()=>{i(),a()}}}`;
+}
+
+function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
+  if (
+    !currentSource.includes("setSparkleBridgeHandlers") ||
+    !currentSource.includes("sparkleManager:") ||
+    !currentSource.includes("onInstallUpdatesRequested")
+  ) {
+    return currentSource;
+  }
+
+  const childProcessVar =
+    requireName(currentSource, "node:child_process") ?? requireName(currentSource, "child_process");
+  const electronVar = requireName(currentSource, "electron") ?? requireName(currentSource, "node:electron");
+  const fsVar = requireName(currentSource, "node:fs") ?? requireName(currentSource, "fs");
+  const pathVar = requireName(currentSource, "node:path") ?? requireName(currentSource, "path");
+  if (childProcessVar == null || fsVar == null || pathVar == null) {
+    console.warn("WARN: Could not find updater bridge module bindings - skipping Linux updater bridge patch");
+    return currentSource;
+  }
+
+  let patchedSource = currentSource;
+  if (!patchedSource.includes("function codexLinuxCreatePackageUpdateManager(")) {
+    if (!patchedSource.includes("state:`disabled`")) {
+      return currentSource;
+    }
+    const bootstrapNeedle = "var rK={enabled:!1,running:!1,state:`disabled`};";
+    if (!patchedSource.includes(bootstrapNeedle)) {
+      console.warn("WARN: Could not find current updater bridge insertion point - skipping Linux updater bridge patch");
+      return currentSource;
+    }
+    patchedSource = patchedSource.replace(
+      bootstrapNeedle,
+      `${buildBootstrapBridgeSource({ childProcessVar, electronVar, fsVar, pathVar })};${bootstrapNeedle}`,
+    );
+  }
+
+  const destructureRegex =
+    /let\{startedAtMs:([A-Za-z_$][\w$]*),buildFlavor:([A-Za-z_$][\w$]*),desktopSentry:([A-Za-z_$][\w$]*),sparkleManager:([A-Za-z_$][\w$]*),setSparkleBridgeHandlers:([A-Za-z_$][\w$]*),setSecondInstanceArgsHandler:([A-Za-z_$][\w$]*)\}=([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(\),/;
+  const destructureMatch = patchedSource.match(destructureRegex);
+  const sparkleVar = destructureMatch?.[4] ?? null;
+  const setSparkleBridgeHandlersVar = destructureMatch?.[5] ?? null;
+  if (sparkleVar == null) {
+    console.warn("WARN: Could not identify current sparkleManager binding - skipping Linux updater bridge patch");
+    return currentSource;
+  }
+  const bridgeHandlersStart = setSparkleBridgeHandlersVar == null
+    ? -1
+    : patchedSource.indexOf(`${setSparkleBridgeHandlersVar}({`, destructureMatch.index ?? 0);
+  const bridgeHandlersSlice = bridgeHandlersStart === -1
+    ? ""
+    : patchedSource.slice(bridgeHandlersStart, bridgeHandlersStart + 1500);
+  const messageDispatcherVar = bridgeHandlersSlice.match(
+    /([A-Za-z_$][\w$]*)\.sendMessageToAllRegisteredWindows\(\{type:`app-update-ready-changed`/,
+  )?.[1] ?? null;
+  if (messageDispatcherVar == null) {
+    console.warn("WARN: Could not identify current updater window message dispatcher - skipping Linux updater bridge patch");
+    return currentSource;
+  }
+
+  if (!patchedSource.includes("codexLinuxPackageUpdateBridge=process.platform===`linux`")) {
+    const bridgeRegex =
+      /let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\),([A-Za-z_$][\w$]*)=\(\)=>\{\1\.allowQuitTemporarilyForUpdateInstall\(\),([A-Za-z_$][\w$]*)\.app\.quit\(\)\};/;
+    const bridgeMatch = patchedSource.match(bridgeRegex);
+    if (bridgeMatch == null) {
+      console.warn("WARN: Could not find current updater callback bridge - skipping Linux updater bridge patch");
+      return currentSource;
+    }
+    const [, quitControllerVar, quitFactoryVar, quitFnVar, electronBindingVar] = bridgeMatch;
+    const replacement =
+      `let ${quitControllerVar}=${quitFactoryVar}(),${quitFnVar}=()=>{${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),${electronBindingVar}.app.quit()},codexLinuxPackageUpdateBridge=process.platform===\`linux\`?codexLinuxCreatePackageUpdateManager({allowQuit:()=>${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),send:e=>${messageDispatcherVar}.sendMessageToAllRegisteredWindows(e)}):null;codexLinuxPackageUpdateBridge!=null&&(${sparkleVar}=codexLinuxPackageUpdateBridge.manager,${quitFnVar}=codexLinuxPackageUpdateBridge.quitForUpdate,setInterval(()=>codexLinuxPackageUpdateBridge.refresh(),3e4).unref?.());`;
+    patchedSource = patchedSource.replace(bridgeRegex, replacement);
+  }
+
+  return patchedSource;
+}
+
 function applyLinuxAppUpdaterBridgePatch(currentSource) {
+  const currentBootstrapPatched = applyCurrentBootstrapUpdaterBridgePatch(currentSource);
+  if (currentBootstrapPatched !== currentSource) {
+    return currentBootstrapPatched;
+  }
+
   if (!currentSource.includes("var tD=class{") || !currentSource.includes("initializeMacSparkle")) {
     return currentSource;
   }
@@ -124,19 +208,22 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
 }
 
 function applyLinuxAppUpdaterMenuPatch(currentSource) {
-  const menuNeedle = "d=t.C.shouldIncludeSparkle(a,process.platform,process.env)";
-  const menuPatch = "d=t.C.shouldIncludeSparkle(a,process.platform,process.env)||process.platform===`linux`";
+  const menuNeedles = [
+    "d=t.C.shouldIncludeSparkle(a,process.platform,process.env)",
+    "d=t.T.shouldIncludeSparkle(a,process.platform,process.env)",
+  ];
 
-  if (currentSource.includes(menuPatch)) {
+  if (/d=t\.[A-Za-z_$][\w$]*\.shouldIncludeSparkle\(a,process\.platform,process\.env\)\|\|process\.platform===`linux`/.test(currentSource)) {
     return currentSource;
   }
-  if (!currentSource.includes(menuNeedle)) {
+  const menuNeedle = menuNeedles.find((needle) => currentSource.includes(needle));
+  if (menuNeedle == null) {
     if (currentSource.includes("enableSparkle") && currentSource.includes("shouldIncludeSparkle")) {
       console.warn("WARN: Could not find update menu feature gate - skipping Linux update menu patch");
     }
     return currentSource;
   }
-  return currentSource.replace(menuNeedle, menuPatch);
+  return currentSource.replace(menuNeedle, `${menuNeedle}||process.platform===\`linux\``);
 }
 
 function patchLinuxAppUpdaterBridge(extractedDir) {

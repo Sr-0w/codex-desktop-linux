@@ -280,7 +280,10 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
 }
 
 function applyLinuxOpaqueBackgroundPatch(currentSource) {
-  if (currentSource.includes("===`linux`&&!OM(")) {
+  if (
+    currentSource.includes("===`linux`&&!OM(") ||
+    /===`linux`&&![A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\)\?\{backgroundColor:[^{}]+,backgroundMaterial:null\}/.test(currentSource)
+  ) {
     return currentSource;
   }
 
@@ -883,15 +886,22 @@ function applyLinuxGitOriginsSourceFallbackPatch(currentSource) {
   if (currentSource.includes(exactNeedle)) {
     return currentSource.replace(exactNeedle, exactReplacement);
   }
+  const currentExactNeedle =
+    "if(o==null){if(e.Gt(r))throw Error(`Missing git operation source for ${r}`);return l()}return t.Gt({source:o,requestKind:r},l)";
+  const currentExactReplacement =
+    `if(o==null){if(e.Gt(r)){if(r===\`git-origins\`)return t.Gt({source:\`${fallbackSource}\`,requestKind:r},l);throw Error(\`Missing git operation source for \${r}\`)}return l()}return t.Gt({source:o,requestKind:r},l)`;
+  if (currentSource.includes(currentExactNeedle)) {
+    return currentSource.replace(currentExactNeedle, currentExactReplacement);
+  }
 
   const dynamicRegex =
-    /if\(([A-Za-z_$][\w$]*)==null\)\{if\(([A-Za-z_$][\w$]*)\.qt\(([A-Za-z_$][\w$]*)\)\)throw Error\(`Missing git operation source for \$\{\3\}`\);return ([A-Za-z_$][\w$]*)\(\)\}return ([A-Za-z_$][\w$]*)\.Gt\(\{source:\1,requestKind:\3\},\4\)/;
+    /if\(([A-Za-z_$][\w$]*)==null\)\{if\(([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\)throw Error\(`Missing git operation source for \$\{\4\}`\);return ([A-Za-z_$][\w$]*)\(\)\}return ([A-Za-z_$][\w$]*)\.Gt\(\{source:\1,requestKind:\4\},\5\)/;
   const dynamicMatch = currentSource.match(dynamicRegex);
   if (dynamicMatch != null) {
-    const [, sourceVar, gitGuardVar, requestKindVar, callVar, operationContextVar] = dynamicMatch;
+    const [, sourceVar, gitGuardVar, guardFn, requestKindVar, callVar, operationContextVar] = dynamicMatch;
     return currentSource.replace(
       dynamicRegex,
-      `if(${sourceVar}==null){if(${gitGuardVar}.qt(${requestKindVar})){if(${requestKindVar}===\`git-origins\`)return ${operationContextVar}.Gt({source:\`${fallbackSource}\`,requestKind:${requestKindVar}},${callVar});throw Error(\`Missing git operation source for \${${requestKindVar}}\`)}return ${callVar}()}return ${operationContextVar}.Gt({source:${sourceVar},requestKind:${requestKindVar}},${callVar})`,
+      `if(${sourceVar}==null){if(${gitGuardVar}.${guardFn}(${requestKindVar})){if(${requestKindVar}===\`git-origins\`)return ${operationContextVar}.Gt({source:\`${fallbackSource}\`,requestKind:${requestKindVar}},${callVar});throw Error(\`Missing git operation source for \${${requestKindVar}}\`)}return ${callVar}()}return ${operationContextVar}.Gt({source:${sourceVar},requestKind:${requestKindVar}},${callVar})`,
     );
   }
 
