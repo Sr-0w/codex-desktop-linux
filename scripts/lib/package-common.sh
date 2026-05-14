@@ -92,6 +92,150 @@ SCRIPT
     chmod 0644 "$target"
 }
 
+render_no_updater_transition_cleanup_helper() {
+    local target="$1"
+
+    cat > "$target" <<'SCRIPT'
+#!/bin/sh
+
+SERVICE_NAME="${SERVICE_NAME:-codex-update-manager.service}"
+
+codex_no_updater_foreach_user_manager() {
+    if ! command -v runuser >/dev/null 2>&1 ||
+        ! command -v systemctl >/dev/null 2>&1 ||
+        ! command -v getent >/dev/null 2>&1; then
+        return
+    fi
+
+    for runtime_dir in /run/user/*; do
+        [ -d "$runtime_dir" ] || continue
+
+        uid="$(basename "$runtime_dir")"
+        case "$uid" in
+            ''|*[!0-9]*|0)
+                continue
+                ;;
+        esac
+
+        bus="$runtime_dir/bus"
+        [ -S "$bus" ] || continue
+
+        user_name="$(getent passwd "$uid" | cut -d: -f1 || true)"
+        [ -n "$user_name" ] || continue
+
+        "$@" "$user_name" "$runtime_dir" "$bus"
+    done
+}
+
+codex_no_updater_run_systemctl_user() {
+    user_name="$1"
+    runtime_dir="$2"
+    bus="$3"
+    shift 3
+
+    runuser -u "$user_name" -- env \
+        XDG_RUNTIME_DIR="$runtime_dir" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+        systemctl --user "$@" >/dev/null 2>&1
+}
+
+codex_no_updater_cleanup_one_user_manager() {
+    user_name="$1"
+    runtime_dir="$2"
+    bus="$3"
+
+    codex_no_updater_run_systemctl_user "$user_name" "$runtime_dir" "$bus" stop "$SERVICE_NAME" || true
+    codex_no_updater_run_systemctl_user "$user_name" "$runtime_dir" "$bus" disable "$SERVICE_NAME" || true
+    codex_no_updater_run_systemctl_user "$user_name" "$runtime_dir" "$bus" daemon-reload || true
+}
+
+codex_no_updater_cleanup_update_manager_service() {
+    codex_no_updater_foreach_user_manager codex_no_updater_cleanup_one_user_manager
+}
+SCRIPT
+    chmod 0644 "$target"
+}
+
+write_no_updater_deb_postinst() {
+    local target="$1"
+    local package_name
+
+    package_name="$(sed_escape_replacement "$PACKAGE_NAME")"
+    cat > "$target" <<SCRIPT
+#!/bin/sh
+set -eu
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
+CLEANUP_HELPER="/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh"
+if [ -f "\$CLEANUP_HELPER" ]; then
+    # shellcheck source=/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh
+    . "\$CLEANUP_HELPER"
+    codex_no_updater_cleanup_update_manager_service || true
+fi
+
+exit 0
+SCRIPT
+    chmod 0755 "$target"
+}
+
+write_no_updater_deb_prerm() {
+    local target="$1"
+    local package_name
+
+    package_name="$(sed_escape_replacement "$PACKAGE_NAME")"
+    cat > "$target" <<SCRIPT
+#!/bin/sh
+set -eu
+
+CLEANUP_HELPER="/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh"
+if [ -f "\$CLEANUP_HELPER" ]; then
+    # shellcheck source=/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh
+    . "\$CLEANUP_HELPER"
+    codex_no_updater_cleanup_update_manager_service || true
+fi
+
+exit 0
+SCRIPT
+    chmod 0755 "$target"
+}
+
+write_no_updater_pacman_install_hooks() {
+    local target="$1"
+    local package_name
+
+    package_name="$(sed_escape_replacement "$PACKAGE_NAME")"
+    cat > "$target" <<SCRIPT
+CLEANUP_HELPER="/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh"
+
+codex_no_updater_cleanup_if_present() {
+    if [ -f "\$CLEANUP_HELPER" ]; then
+        # shellcheck source=/opt/$package_name/.codex-linux/codex-no-updater-transition-cleanup.sh
+        . "\$CLEANUP_HELPER"
+        codex_no_updater_cleanup_update_manager_service || true
+    fi
+}
+
+post_install() {
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+    fi
+    codex_no_updater_cleanup_if_present
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    codex_no_updater_cleanup_if_present
+}
+SCRIPT
+    chmod 0644 "$target"
+}
+
 updater_binary_is_stale() {
     local binary="$1"
 
@@ -182,6 +326,9 @@ stage_common_package_files() {
         chmod 0644 "$root/usr/lib/systemd/user/codex-update-manager.service"
         cp "$polkit_policy" "$root/usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy"
         chmod 0644 "$root/usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy"
+    else
+        render_no_updater_transition_cleanup_helper \
+            "$app_root/.codex-linux/codex-no-updater-transition-cleanup.sh"
     fi
     render_packaged_runtime_helper "$app_root/.codex-linux/codex-packaged-runtime.sh"
 }

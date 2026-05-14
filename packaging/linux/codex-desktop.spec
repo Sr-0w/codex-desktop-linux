@@ -58,6 +58,12 @@ if [ -f "$SERVICE_HELPER" ]; then
     . "$SERVICE_HELPER"
     codex_ensure_user_service_running || true
 fi
+%else
+CLEANUP_HELPER=/opt/__PACKAGE_NAME__/.codex-linux/codex-no-updater-transition-cleanup.sh
+if [ -f "$CLEANUP_HELPER" ]; then
+    . "$CLEANUP_HELPER"
+    codex_no_updater_cleanup_update_manager_service || true
+fi
 %endif
 
 %if __PACKAGE_WITH_UPDATER__
@@ -67,6 +73,13 @@ SERVICE_HELPER=/opt/__PACKAGE_NAME__/update-builder/packaging/linux/codex-update
 if [ $1 -eq 0 ] && [ -f "$SERVICE_HELPER" ]; then
     codex_cleanup_user_service stop || true
     codex_cleanup_user_service disable || true
+fi
+%else
+%preun
+CLEANUP_HELPER=/opt/__PACKAGE_NAME__/.codex-linux/codex-no-updater-transition-cleanup.sh
+if [ -f "$CLEANUP_HELPER" ]; then
+    . "$CLEANUP_HELPER"
+    codex_no_updater_cleanup_update_manager_service || true
 fi
 %endif
 

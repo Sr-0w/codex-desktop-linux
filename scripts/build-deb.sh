@@ -90,6 +90,9 @@ CONTROL
         cp "$PRERM_TEMPLATE" "$PKG_ROOT/DEBIAN/prerm"
         cp "$POSTRM_TEMPLATE" "$PKG_ROOT/DEBIAN/postrm"
         chmod 0755 "$PKG_ROOT/DEBIAN/postinst" "$PKG_ROOT/DEBIAN/prerm" "$PKG_ROOT/DEBIAN/postrm"
+    else
+        write_no_updater_deb_postinst "$PKG_ROOT/DEBIAN/postinst"
+        write_no_updater_deb_prerm "$PKG_ROOT/DEBIAN/prerm"
     fi
 
     mkdir -p "$DIST_DIR"

@@ -268,13 +268,14 @@ SCRIPT
 
     assert_file_exists "$dist_dir/codex-desktop_2026.03.24.120000+manual_amd64.deb"
     assert_file_exists "$pkg_root/usr/bin/codex-desktop"
+    assert_file_exists "$pkg_root/DEBIAN/postinst"
+    assert_file_exists "$pkg_root/DEBIAN/prerm"
     assert_file_exists "$pkg_root/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh"
+    assert_file_exists "$pkg_root/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh"
     assert_file_not_exists "$pkg_root/usr/bin/codex-update-manager"
     assert_file_not_exists "$pkg_root/usr/lib/systemd/user/codex-update-manager.service"
     assert_file_not_exists "$pkg_root/usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy"
     assert_file_not_exists "$pkg_root/opt/codex-desktop/update-builder"
-    assert_file_not_exists "$pkg_root/DEBIAN/postinst"
-    assert_file_not_exists "$pkg_root/DEBIAN/prerm"
     assert_file_not_exists "$pkg_root/DEBIAN/postrm"
     assert_not_contains "$pkg_root/DEBIAN/control" "pkexec"
     assert_not_contains "$pkg_root/DEBIAN/control" "polkit"
@@ -286,6 +287,14 @@ SCRIPT
     assert_not_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "systemctl"
     assert_not_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex-update-manager"
     assert_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CHROME_DESKTOP="codex-desktop.desktop"'
+    assert_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh" "codex_no_updater_cleanup_update_manager_service"
+    assert_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh" "stop \"\$SERVICE_NAME\""
+    assert_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh" "disable \"\$SERVICE_NAME\""
+    assert_contains "$pkg_root/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh" "daemon-reload"
+    assert_contains "$pkg_root/DEBIAN/postinst" "codex_no_updater_cleanup_update_manager_service"
+    assert_contains "$pkg_root/DEBIAN/prerm" "codex_no_updater_cleanup_update_manager_service"
+    assert_not_contains "$pkg_root/DEBIAN/postinst" "update-builder"
+    assert_not_contains "$pkg_root/DEBIAN/prerm" "update-builder"
 }
 
 test_rpm_builder_smoke() {
@@ -334,6 +343,58 @@ SCRIPT
     bash "$REPO_DIR/scripts/build-rpm.sh"
 
     assert_file_exists "$dist_dir/codex-desktop-2026.03.24.120000-deadbeef.x86_64.rpm"
+}
+
+test_pacman_builder_without_updater_transition_hook() {
+    info "Running no-updater pacman packaging hook smoke test"
+    if [ "$(id -u)" -eq 0 ]; then
+        info "Skipping pacman no-updater hook smoke test as root"
+        return
+    fi
+
+    local workspace="$TMP_DIR/pacman-no-updater"
+    local bin_dir="$workspace/bin"
+    local app_dir="$workspace/app"
+    local dist_dir="$workspace/dist"
+    local capture_dir="$workspace/capture"
+
+    mkdir -p "$workspace" "$dist_dir" "$capture_dir"
+    make_stub_bin_dir "$bin_dir"
+    make_fake_app "$app_dir"
+
+    cat > "$bin_dir/makepkg" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+cp PKGBUILD "$CAPTURE_DIR/PKGBUILD"
+cp codex-desktop.install "$CAPTURE_DIR/codex-desktop.install"
+mkdir -p "$PKGDEST"
+touch "$PKGDEST/codex-desktop-2026.03.24.120000-1-x86_64.pkg.tar.zst"
+SCRIPT
+    cat > "$bin_dir/cargo" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "cargo should not be called when PACKAGE_WITH_UPDATER=0" >&2
+exit 99
+SCRIPT
+    chmod +x "$bin_dir/makepkg" "$bin_dir/cargo"
+
+    PATH="$bin_dir:$PATH" \
+    CAPTURE_DIR="$capture_dir" \
+    APP_DIR_OVERRIDE="$app_dir" \
+    DIST_DIR_OVERRIDE="$dist_dir" \
+    PACKAGE_WITH_UPDATER=0 \
+    PACKAGE_VERSION="2026.03.24.120000+manual" \
+    bash "$REPO_DIR/scripts/build-pacman.sh"
+
+    assert_file_exists "$dist_dir/codex-desktop-2026.03.24.120000-1-x86_64.pkg.tar.zst"
+    assert_file_exists "$capture_dir/PKGBUILD"
+    assert_file_exists "$capture_dir/codex-desktop.install"
+    assert_contains "$capture_dir/PKGBUILD" "install=codex-desktop.install"
+    assert_not_contains "$capture_dir/PKGBUILD" "'polkit'"
+    assert_contains "$capture_dir/codex-desktop.install" "codex_no_updater_cleanup_update_manager_service"
+    assert_contains "$capture_dir/codex-desktop.install" "post_upgrade"
+    assert_contains "$capture_dir/codex-desktop.install" "pre_remove"
+    assert_contains "$capture_dir/codex-desktop.install" "codex-no-updater-transition-cleanup.sh"
+    assert_not_contains "$capture_dir/codex-desktop.install" "update-builder"
 }
 
 test_missing_input_failure() {
@@ -2316,6 +2377,7 @@ main() {
     test_deb_builder_respects_package_identity
     test_deb_builder_without_updater
     test_rpm_builder_smoke
+    test_pacman_builder_without_updater_transition_hook
     test_missing_input_failure
     test_make_build_app_uses_installer_download_flow_by_default
     test_upstream_build_app_workflow_tracks_dmg_metadata

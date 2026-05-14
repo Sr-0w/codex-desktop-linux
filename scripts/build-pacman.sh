@@ -81,9 +81,9 @@ main() {
 		sed -e "s|/opt/codex-desktop|/opt/$PACKAGE_NAME|g" \
 			"$INSTALL_HOOKS" >"$build_root/${PACKAGE_NAME}.install"
 	else
+		write_no_updater_pacman_install_hooks "$build_root/${PACKAGE_NAME}.install"
 		sed -i \
 			-e "/'polkit'/d" \
-			-e '/^install=/d' \
 			"$build_root/PKGBUILD"
 	fi
 

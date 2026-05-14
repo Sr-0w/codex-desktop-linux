@@ -290,11 +290,19 @@ run_deb_job() {
     local deb_no_updater_file
     deb_no_updater_file="$(package_file_or_fail 'codex-desktop_*.deb')"
     dpkg-deb -c "$deb_no_updater_file" | tee /tmp/deb-no-updater-contents.txt >/dev/null
+    rm -rf /tmp/deb-no-updater-control
+    mkdir -p /tmp/deb-no-updater-control
+    dpkg-deb -e "$deb_no_updater_file" /tmp/deb-no-updater-control
     assert_not_contains_file /tmp/deb-no-updater-contents.txt './usr/bin/codex-update-manager'
     assert_not_contains_file /tmp/deb-no-updater-contents.txt './usr/lib/systemd/user/codex-update-manager.service'
     assert_not_contains_file /tmp/deb-no-updater-contents.txt './usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy'
     assert_not_contains_file /tmp/deb-no-updater-contents.txt './opt/codex-desktop/update-builder/'
     assert_contains_file /tmp/deb-no-updater-contents.txt './opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh'
+    assert_contains_file /tmp/deb-no-updater-contents.txt './opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh'
+    assert_contains_file /tmp/deb-no-updater-control/postinst 'codex_no_updater_cleanup_update_manager_service'
+    assert_contains_file /tmp/deb-no-updater-control/prerm 'codex_no_updater_cleanup_update_manager_service'
+    assert_not_contains_file /tmp/deb-no-updater-control/postinst 'update-builder'
+    assert_not_contains_file /tmp/deb-no-updater-control/prerm 'update-builder'
 
     append_summary "Debian Package Validation" \
         "Built: \`$(basename "$deb_file")\`" \
@@ -333,11 +341,16 @@ run_rpm_job() {
     local rpm_no_updater_file
     rpm_no_updater_file="$(package_file_or_fail 'codex-desktop-*.rpm')"
     rpm -qlp "$rpm_no_updater_file" | tee /tmp/rpm-no-updater-contents.txt >/dev/null
+    rpm -qp --scripts "$rpm_no_updater_file" | tee /tmp/rpm-no-updater-scripts.txt >/dev/null
     assert_not_contains_file /tmp/rpm-no-updater-contents.txt '/usr/bin/codex-update-manager'
     assert_not_contains_file /tmp/rpm-no-updater-contents.txt '/usr/lib/systemd/user/codex-update-manager.service'
     assert_not_contains_file /tmp/rpm-no-updater-contents.txt '/usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy'
     assert_not_contains_file /tmp/rpm-no-updater-contents.txt '/opt/codex-desktop/update-builder/'
     assert_contains_file /tmp/rpm-no-updater-contents.txt '/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh'
+    assert_contains_file /tmp/rpm-no-updater-contents.txt '/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh'
+    assert_contains_file /tmp/rpm-no-updater-scripts.txt 'codex_no_updater_cleanup_update_manager_service'
+    assert_not_contains_file /tmp/rpm-no-updater-scripts.txt 'update-builder'
+    assert_not_contains_file /tmp/rpm-no-updater-scripts.txt 'codex_ensure_user_service_running'
 
     append_summary "RPM Package Validation" \
         "Built: \`$(basename "$rpm_file")\`" \
@@ -377,11 +390,17 @@ run_pacman_job() {
     local pkg_no_updater_file
     pkg_no_updater_file="$(package_file_or_fail 'codex-desktop-*.pkg.tar.*')"
     pacman -Qlp "$pkg_no_updater_file" | tee /tmp/pacman-no-updater-contents.txt >/dev/null
+    tar -xOf "$pkg_no_updater_file" .INSTALL | tee /tmp/pacman-no-updater-install.txt >/dev/null
     assert_not_contains_file /tmp/pacman-no-updater-contents.txt 'usr/bin/codex-update-manager'
     assert_not_contains_file /tmp/pacman-no-updater-contents.txt 'usr/lib/systemd/user/codex-update-manager.service'
     assert_not_contains_file /tmp/pacman-no-updater-contents.txt 'usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy'
     assert_not_contains_file /tmp/pacman-no-updater-contents.txt 'opt/codex-desktop/update-builder/'
     assert_contains_file /tmp/pacman-no-updater-contents.txt 'opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh'
+    assert_contains_file /tmp/pacman-no-updater-contents.txt 'opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh'
+    assert_contains_file /tmp/pacman-no-updater-install.txt 'codex_no_updater_cleanup_update_manager_service'
+    assert_contains_file /tmp/pacman-no-updater-install.txt 'post_upgrade'
+    assert_contains_file /tmp/pacman-no-updater-install.txt 'pre_remove'
+    assert_not_contains_file /tmp/pacman-no-updater-install.txt 'update-builder'
 
     append_summary "Pacman Package Validation" \
         "Built: \`$(basename "$pkg_file")\`" \
