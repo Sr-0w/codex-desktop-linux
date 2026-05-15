@@ -100,9 +100,20 @@ repo_branch_from_origin_head() {
     printf '%s\n' "$branch"
 }
 
+remote_branch_exists() {
+    local branch="$1"
+    local origin_url=""
+
+    [ -n "$branch" ] || return 1
+    origin_url="$(repo_origin_url 2>/dev/null || true)"
+    [ -n "$origin_url" ] || return 1
+
+    git ls-remote --exit-code --heads "$origin_url" "refs/heads/$branch" >/dev/null 2>&1
+}
+
 repo_default_branch() {
     local branch="${REPO_DEFAULT_BRANCH:-}"
-    if [ -n "$branch" ] && [ "$branch" != "origin/HEAD" ]; then
+    if [ -n "$branch" ] && [ "$branch" != "origin/HEAD" ] && remote_branch_exists "$branch"; then
         printf '%s\n' "$branch"
         return 0
     fi
