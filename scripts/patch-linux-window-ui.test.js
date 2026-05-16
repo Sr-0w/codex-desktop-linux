@@ -1639,9 +1639,11 @@ function withIsolatedHome(body) {
   const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "codex-cu-ui-test-"));
   const previousHome = process.env.HOME;
   const previousXdg = process.env.XDG_CONFIG_HOME;
+  const previousAppId = process.env.CODEX_APP_ID;
   const previousFlag = process.env[COMPUTER_USE_UI_ENV_VAR];
   process.env.HOME = tempHome;
   delete process.env.XDG_CONFIG_HOME;
+  delete process.env.CODEX_APP_ID;
   delete process.env[COMPUTER_USE_UI_ENV_VAR];
   try {
     return body(tempHome);
@@ -1656,6 +1658,11 @@ function withIsolatedHome(body) {
     } else {
       process.env.XDG_CONFIG_HOME = previousXdg;
     }
+    if (previousAppId == null) {
+      delete process.env.CODEX_APP_ID;
+    } else {
+      process.env.CODEX_APP_ID = previousAppId;
+    }
     if (previousFlag == null) {
       delete process.env[COMPUTER_USE_UI_ENV_VAR];
     } else {
@@ -1665,8 +1672,8 @@ function withIsolatedHome(body) {
   }
 }
 
-function writeSettingsFile(home, content) {
-  const dir = path.join(home, ".config", "codex-desktop");
+function writeSettingsFile(home, content, appId = "codex-desktop") {
+  const dir = path.join(home, ".config", appId);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "settings.json"), content, "utf8");
 }
@@ -1689,6 +1696,14 @@ test("isComputerUseUiEnabled honours the env var", () => {
 test("isComputerUseUiEnabled honours the persisted settings flag", () => {
   withIsolatedHome((home) => {
     writeSettingsFile(home, JSON.stringify({ [COMPUTER_USE_UI_SETTINGS_KEY]: true }));
+    assert.equal(isComputerUseUiEnabled(), true);
+  });
+});
+
+test("isComputerUseUiEnabled honours side-by-side CODEX_APP_ID settings", () => {
+  withIsolatedHome((home) => {
+    process.env.CODEX_APP_ID = "codex-cua-lab";
+    writeSettingsFile(home, JSON.stringify({ [COMPUTER_USE_UI_SETTINGS_KEY]: true }), "codex-cua-lab");
     assert.equal(isComputerUseUiEnabled(), true);
   });
 });

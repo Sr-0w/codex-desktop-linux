@@ -28,9 +28,11 @@ map_arch() {
 	esac
 }
 
-# Arch pkgver must not contain '+' or '-'; split on '+' and use the base as pkgver.
+# Arch pkgver may contain '+', so keep the caller-provided commitish suffix in
+# pkgver. pkgrel is reserved for distro/package rebuilds of the same upstream
+# app version.
 pacman_version_parts() {
-	PACMAN_PKGVER="${PACKAGE_VERSION%%+*}"
+	PACMAN_PKGVER="$PACKAGE_VERSION"
 	PACMAN_PKGREL="1"
 }
 

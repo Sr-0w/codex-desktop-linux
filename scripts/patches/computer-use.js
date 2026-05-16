@@ -44,7 +44,16 @@ function computerUseUiSettingsPath(env) {
     : home
       ? path.join(home, ".config")
       : null;
-  return configHome == null ? null : path.join(configHome, "codex-desktop", "settings.json");
+  if (configHome == null) {
+    return null;
+  }
+  const appId = computerUseUiSettingsAppId(env);
+  return path.join(configHome, appId, "settings.json");
+}
+
+function computerUseUiSettingsAppId(env) {
+  const appId = env.CODEX_APP_ID || env.CODEX_LINUX_APP_ID || "codex-desktop";
+  return /^[A-Za-z0-9._-]+$/.test(appId) ? appId : "codex-desktop";
 }
 
 // Lookback/lookahead windows used when searching for the nearest minified

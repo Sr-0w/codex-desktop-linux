@@ -443,8 +443,12 @@ test_pacman_builder_without_updater_transition_hook() {
 set -euo pipefail
 cp PKGBUILD "$CAPTURE_DIR/PKGBUILD"
 cp codex-desktop.install "$CAPTURE_DIR/codex-desktop.install"
+pkgname="$(sed -n 's/^pkgname=//p' PKGBUILD)"
+pkgver="$(sed -n 's/^pkgver=//p' PKGBUILD)"
+pkgrel="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
+arch="$(sed -n "s/^arch=('\([^']*\)').*/\1/p" PKGBUILD)"
 mkdir -p "$PKGDEST"
-touch "$PKGDEST/codex-desktop-2026.03.24.120000-1-x86_64.pkg.tar.zst"
+touch "$PKGDEST/${pkgname}-${pkgver}-${pkgrel}-${arch}.pkg.tar.zst"
 SCRIPT
     cat > "$bin_dir/cargo" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -462,9 +466,11 @@ SCRIPT
     PACKAGE_VERSION="2026.03.24.120000+manual" \
     bash "$REPO_DIR/scripts/build-pacman.sh"
 
-    assert_file_exists "$dist_dir/codex-desktop-2026.03.24.120000-1-x86_64.pkg.tar.zst"
+    assert_file_exists "$dist_dir/codex-desktop-2026.03.24.120000+manual-1-x86_64.pkg.tar.zst"
     assert_file_exists "$capture_dir/PKGBUILD"
     assert_file_exists "$capture_dir/codex-desktop.install"
+    assert_contains "$capture_dir/PKGBUILD" "pkgver=2026.03.24.120000+manual"
+    assert_contains "$capture_dir/PKGBUILD" "pkgrel=1"
     assert_contains "$capture_dir/PKGBUILD" "ampersand&tmp"
     assert_not_contains "$capture_dir/PKGBUILD" "__STAGING_DIR__"
     assert_contains "$capture_dir/PKGBUILD" "install=codex-desktop.install"
