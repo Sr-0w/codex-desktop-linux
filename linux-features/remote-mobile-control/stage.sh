@@ -23,6 +23,11 @@ const fs = require("node:fs");
 const [clientPath, patchModulePath] = process.argv.slice(2);
 const { applyLinuxRemoteMobileChromeBridgePatch } = require(patchModulePath);
 
+if (typeof applyLinuxRemoteMobileChromeBridgePatch !== "function") {
+  console.error("WARN: Remote mobile Chrome bridge patch export not found; skipping");
+  process.exit(0);
+}
+
 const source = fs.readFileSync(clientPath, "utf8");
 const patched = applyLinuxRemoteMobileChromeBridgePatch(source);
 if (patched !== source) {
