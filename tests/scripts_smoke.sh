@@ -1816,6 +1816,7 @@ source = open(sys.argv[1], encoding="utf-8").read()
 detect_body = source.split("detect_warm_start() {", 1)[1].split("send_warm_start_launch_action() {", 1)[0]
 launch_body = source.split("launch_electron() {", 1)[1].split("load_packaged_runtime_helper", 1)[0]
 runtime_body = source.split("trap cleanup_launcher EXIT", 1)[1].split("launch_electron", 1)[0]
+webview_probe_body = source.split("webview_port_is_open() {", 1)[1].split("wait_for_webview_server() {", 1)[0]
 cold_start_hooks_body = source.split("run_cold_start_hooks() {", 1)[1].split("run_cli_preflight() {", 1)[0]
 stop_body = source.split("stop_owned_webview_server() {", 1)[1].split("owned_webview_server_pid() {", 1)[0]
 stale_body = source.split("pid_is_stale_webview_server() {", 1)[1].split("stop_owned_webview_server() {", 1)[0]
@@ -1831,6 +1832,10 @@ if 'unset CODEX_LINUX_MULTI_LAUNCH' not in source.split('parse_launcher_args() {
     raise SystemExit("launcher must clear inherited internal multi-launch markers before parsing args")
 if '$((CODEX_LINUX_WEBVIEW_PORT + 4))' not in source:
     raise SystemExit("multi-launch default range must cap the default at five ports")
+if '( trap - EXIT\n      exec 3<>/dev/tcp/127.0.0.1/"$CODEX_LINUX_WEBVIEW_PORT" )' not in webview_probe_body:
+    raise SystemExit("webview port probe must not inherit the launcher EXIT cleanup trap")
+if '( trap - EXIT\n      sleep 0.2' not in webview_probe_body:
+    raise SystemExit("webview port probe watchdog must not inherit the launcher EXIT cleanup trap")
 if 'CODEX_LINUX_INSTANCE_ID="port-$CODEX_LINUX_WEBVIEW_PORT"' not in multi_body:
     raise SystemExit("multi-launch must derive a stable instance id from the allocated port")
 if 'CODEX_LINUX_MULTI_LAUNCH=1' not in multi_body:
@@ -1855,10 +1860,23 @@ if not re.search(r'if ! linux_setting_enabled "codex-linux-warm-start-enabled" 1
     raise SystemExit("detect_warm_start must not fail when warm start is disabled")
 if "preserving liveness marker for second-instance handoff" not in detect_body:
     raise SystemExit("detect_warm_start must preserve the live app liveness marker")
+if launch_body.count("unset ELECTRON_RUN_AS_NODE") != 2:
+    raise SystemExit("launch_electron must clear ELECTRON_RUN_AS_NODE before both Electron launch paths")
 if 'pid_matches_executable "$RUNNING_APP_PID" "$SCRIPT_DIR/electron"' not in launch_body:
     raise SystemExit("launch_electron must not overwrite APP_PID_FILE for second-instance handoff")
 if 'echo "$ELECTRON_PID" > "$APP_PID_FILE"' not in launch_body:
     raise SystemExit("launch_electron must still write APP_PID_FILE for normal cold launches")
+electron_launch = '"$SCRIPT_DIR/electron" "${ELECTRON_LAUNCH_ARGS[@]}" "${ELECTRON_ARGS[@]}"'
+warm_log = 'echo "Electron warm-start handoff:'
+normal_log = 'echo "Electron launch mode:'
+warm_log_pos = launch_body.index(warm_log)
+warm_unset_pos = launch_body.index("unset ELECTRON_RUN_AS_NODE", warm_log_pos)
+warm_launch_pos = launch_body.index(electron_launch, warm_unset_pos)
+normal_log_pos = launch_body.index(normal_log)
+normal_unset_pos = launch_body.index("unset ELECTRON_RUN_AS_NODE", normal_log_pos)
+normal_launch_pos = launch_body.index(electron_launch + " &", normal_unset_pos)
+if not (warm_log_pos < warm_unset_pos < warm_launch_pos < normal_log_pos < normal_unset_pos < normal_launch_pos):
+    raise SystemExit("launch_electron must clear ELECTRON_RUN_AS_NODE immediately before each Electron launch")
 if "using_second_instance_handoff" not in source or "needs_cold_start" not in source:
     raise SystemExit("launcher must have an explicit second-instance handoff mode")
 if "second_instance_handoff_ready" not in runtime_body:
