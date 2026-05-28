@@ -15,13 +15,21 @@ resolve_script_dir() {
 }
 
 SCRIPT_DIR="$(resolve_script_dir)"
+if [ -z "${CODEX_HOME:-}" ]; then
+    if [ -n "${HOME:-}" ]; then
+        CODEX_HOME="$HOME/.codex"
+    else
+        CODEX_HOME=""
+    fi
+fi
 WEBVIEW_DIR="$SCRIPT_DIR/content/webview"
 LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/$CODEX_LINUX_APP_ID"
 LOG_FILE="$LOG_DIR/launcher.log"
 APP_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/$CODEX_LINUX_APP_ID"
 APP_SETTINGS_FILE="$APP_CONFIG_DIR/settings.json"
 CODEX_LINUX_SETTINGS_FILE="$APP_SETTINGS_FILE"
-export CODEX_LINUX_APP_ID CODEX_LINUX_APP_DISPLAY_NAME CODEX_LINUX_WEBVIEW_PORT CODEX_LINUX_SETTINGS_FILE
+CODEX_LINUX_FEATURES_DIR="$SCRIPT_DIR/.codex-linux/features"
+export CODEX_HOME CODEX_LINUX_APP_ID CODEX_LINUX_APP_DISPLAY_NAME CODEX_LINUX_WEBVIEW_PORT CODEX_LINUX_SETTINGS_FILE CODEX_LINUX_FEATURES_DIR
 APP_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/$CODEX_LINUX_APP_ID"
 APP_PID_FILE="$APP_STATE_DIR/app.pid"
 WEBVIEW_PID_FILE="$APP_STATE_DIR/webview.pid"
@@ -541,9 +549,11 @@ run_feature_prelaunch_hooks() {
         [ -f "$hook" ] || continue
         [ -x "$hook" ] || continue
         echo "Running Linux feature prelaunch hook: $hook"
+        CODEX_HOME="$CODEX_HOME" \
         CODEX_LINUX_APP_DIR="$SCRIPT_DIR" \
-            CODEX_LINUX_APP_STATE_DIR="$APP_STATE_DIR" \
-            CODEX_LINUX_LAUNCHER_LOG="$LOG_FILE" \
+        CODEX_LINUX_APP_STATE_DIR="$APP_STATE_DIR" \
+        CODEX_LINUX_FEATURES_DIR="$CODEX_LINUX_FEATURES_DIR" \
+        CODEX_LINUX_LAUNCHER_LOG="$LOG_FILE" \
             "$hook" "$SCRIPT_DIR" "$APP_STATE_DIR" "$LOG_DIR"
     done
 }
@@ -1091,8 +1101,10 @@ run_cold_start_hooks() {
         [ -x "$hook" ] || continue
         echo "Starting cold-start hook: $hook"
         (
+            CODEX_HOME="$CODEX_HOME" \
             CODEX_LINUX_APP_DIR="$SCRIPT_DIR" \
             CODEX_LINUX_APP_STATE_DIR="$APP_STATE_DIR" \
+            CODEX_LINUX_FEATURES_DIR="$CODEX_LINUX_FEATURES_DIR" \
             CODEX_LINUX_LAUNCHER_LOG="$LOG_FILE" \
             "$hook" "$SCRIPT_DIR" "$APP_STATE_DIR" "$LOG_DIR"
         ) >>"$LOG_FILE" 2>&1 &

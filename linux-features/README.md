@@ -87,6 +87,14 @@ Declarative resources and runtime hooks are tracked in
 `.codex-linux/linux-features-staged.json` and removed on the next install when
 the owning feature is disabled. Legacy `stage.sh` hooks own their own cleanup.
 
+Runtime hooks receive `CODEX_HOME`, `CODEX_LINUX_APP_DIR`,
+`CODEX_LINUX_APP_STATE_DIR`, `CODEX_LINUX_FEATURES_DIR`, and
+`CODEX_LINUX_LAUNCHER_LOG`. If a feature needs to install a Codex skill or
+other user-home artifact, stage the source with `resources` and copy it from
+`$CODEX_LINUX_FEATURES_DIR/<feature-id>/...` in `runtimeHooks.prelaunch`.
+Avoid writing user-home files from `stage.sh`, because install/package/update
+rebuilds may run outside the real user's session.
+
 `packageHooks` run during native package staging and receive `PACKAGE_FORMAT`,
 `PACKAGE_ROOT`, `PACKAGE_NAME`, `PACKAGE_VERSION`, and `APP_DIR`.
 

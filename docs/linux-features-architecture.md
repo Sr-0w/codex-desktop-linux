@@ -141,6 +141,15 @@ The runtime hook types map to:
 - `coldStart`: copied to `.codex-linux/cold-start.d/`; executable hooks run in
   the background during cold start, after bundled plugin cache sync.
 
+Runtime hooks receive `CODEX_HOME`, `CODEX_LINUX_APP_DIR`,
+`CODEX_LINUX_APP_STATE_DIR`, `CODEX_LINUX_FEATURES_DIR`, and
+`CODEX_LINUX_LAUNCHER_LOG`. Use this pattern for user-home artifacts such as
+Codex skills: stage the source file with `resources` under
+`.codex-linux/features/<feature-id>/...`, then copy it from
+`$CODEX_LINUX_FEATURES_DIR/<feature-id>/...` to `$CODEX_HOME/skills/...` in a
+`runtimeHooks.prelaunch` script. Do not write user-home files from `stage.sh`;
+install, package, and updater rebuilds may run outside the real user's session.
+
 ## Package Hooks
 
 Use `packageHooks` only when a feature must mutate native package staging:
