@@ -130,6 +130,7 @@ impl RuntimeConfig {
 const APP_SETTINGS_FILE: &str = "settings.json";
 const DEFAULT_APP_ID: &str = "codex-desktop";
 const AUTO_INSTALL_SETTING_KEY: &str = "codex-linux-auto-update-on-exit";
+const WRAPPER_UPDATES_SETTING_KEY: &str = "codex-linux-wrapper-updates-enabled";
 
 /// Resolves the Codex Desktop app id the same way the Linux launcher and main
 /// bundle do: `CODEX_LINUX_APP_ID`, then `CODEX_APP_ID`, then `codex-desktop`.
@@ -187,16 +188,25 @@ fn coerce_setting_bool(value: &serde_json::Value) -> Option<bool> {
     }
 }
 
-/// Reads the user's auto-install-on-exit preference from the app
-/// `settings.json`. Returns `Some(true|false)` only when the toggle key is
-/// present and coercible; any missing file, parse error, or absent key yields
-/// `None` so the caller falls back to the config/default value. Never panics.
-pub fn settings_auto_install_override() -> Option<bool> {
+/// Reads a boolean app setting from `settings.json`. Returns `Some(true|false)`
+/// only when the toggle key is present and coercible; any missing file, parse
+/// error, or absent key yields `None` so callers fall back to config/defaults.
+fn settings_bool_override(key: &str) -> Option<bool> {
     let path = app_settings_path()?;
     let content = fs::read_to_string(&path).ok()?;
     let parsed = serde_json::from_str::<serde_json::Value>(&content).ok()?;
     let object = parsed.as_object()?;
-    coerce_setting_bool(object.get(AUTO_INSTALL_SETTING_KEY)?)
+    coerce_setting_bool(object.get(key)?)
+}
+
+/// Reads the user's auto-install-on-exit preference from the app settings.
+pub fn settings_auto_install_override() -> Option<bool> {
+    settings_bool_override(AUTO_INSTALL_SETTING_KEY)
+}
+
+/// Reads the user's opt-in wrapper update tracking preference from app settings.
+pub fn settings_wrapper_updates_override() -> Option<bool> {
+    settings_bool_override(WRAPPER_UPDATES_SETTING_KEY)
 }
 
 #[cfg(test)]
@@ -208,7 +218,7 @@ mod tests {
     /// Writes `settings.json` content to a tempfile, points
     /// `CODEX_LINUX_SETTINGS_FILE` at it, and returns the override result.
     /// `None` content means "do not create the file" (missing-file case).
-    fn override_with_settings(content: Option<&str>) -> Option<bool> {
+    fn override_with_settings(content: Option<&str>, key: &str) -> Option<bool> {
         let _guard = crate::test_util::env_lock();
         let temp = tempdir().expect("tempdir");
         let settings_path = temp.path().join("settings.json");
@@ -216,7 +226,7 @@ mod tests {
             std::fs::write(&settings_path, body).expect("write settings");
         }
         std::env::set_var("CODEX_LINUX_SETTINGS_FILE", &settings_path);
-        let result = settings_auto_install_override();
+        let result = settings_bool_override(key);
         std::env::remove_var("CODEX_LINUX_SETTINGS_FILE");
         result
     }
@@ -224,11 +234,17 @@ mod tests {
     #[test]
     fn settings_override_reads_explicit_bool() {
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": false}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": false}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(false)
         );
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": true}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": true}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(true)
         );
     }
@@ -236,19 +252,31 @@ mod tests {
     #[test]
     fn settings_override_coerces_string_and_number() {
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": "off"}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": "off"}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(false)
         );
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": "on"}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": "on"}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(true)
         );
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": 0}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": 0}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(false)
         );
         assert_eq!(
-            override_with_settings(Some(r#"{"codex-linux-auto-update-on-exit": 1}"#)),
+            override_with_settings(
+                Some(r#"{"codex-linux-auto-update-on-exit": 1}"#),
+                AUTO_INSTALL_SETTING_KEY
+            ),
             Some(true)
         );
     }
@@ -256,10 +284,37 @@ mod tests {
     #[test]
     fn settings_override_absent_yields_none() {
         // Missing file, malformed JSON, non-object, and absent key all fall back.
-        assert_eq!(override_with_settings(None), None);
-        assert_eq!(override_with_settings(Some("not json{")), None);
-        assert_eq!(override_with_settings(Some("[1,2,3]")), None);
-        assert_eq!(override_with_settings(Some(r#"{"other-key": true}"#)), None);
+        assert_eq!(override_with_settings(None, AUTO_INSTALL_SETTING_KEY), None);
+        assert_eq!(
+            override_with_settings(Some("not json{"), AUTO_INSTALL_SETTING_KEY),
+            None
+        );
+        assert_eq!(
+            override_with_settings(Some("[1,2,3]"), AUTO_INSTALL_SETTING_KEY),
+            None
+        );
+        assert_eq!(
+            override_with_settings(Some(r#"{"other-key": true}"#), AUTO_INSTALL_SETTING_KEY),
+            None
+        );
+    }
+
+    #[test]
+    fn wrapper_settings_override_reads_explicit_bool() {
+        assert_eq!(
+            override_with_settings(
+                Some(r#"{"codex-linux-wrapper-updates-enabled": true}"#),
+                WRAPPER_UPDATES_SETTING_KEY
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            override_with_settings(
+                Some(r#"{"codex-linux-wrapper-updates-enabled": false}"#),
+                WRAPPER_UPDATES_SETTING_KEY
+            ),
+            Some(false)
+        );
     }
 
     #[test]

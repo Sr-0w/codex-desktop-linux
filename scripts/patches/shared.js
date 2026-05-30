@@ -14,6 +14,7 @@ const linuxSettingsKeys = {
   systemTray: "codex-linux-system-tray-enabled",
   warmStart: "codex-linux-warm-start-enabled",
   autoUpdateOnExit: "codex-linux-auto-update-on-exit",
+  wrapperUpdates: "codex-linux-wrapper-updates-enabled",
 };
 
 function readDirectoryNames(dir) {

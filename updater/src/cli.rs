@@ -25,6 +25,8 @@ pub enum Commands {
         #[arg(long, default_value_t = false)]
         json: bool,
     },
+    /// Apply the recorded wrapper update candidate for the running install.
+    ApplyWrapperUpdate,
     CliPreflight {
         #[arg(long)]
         cli_path: Option<PathBuf>,

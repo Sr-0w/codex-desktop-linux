@@ -80,14 +80,39 @@ pub async fn build_update(
     candidate_version: &str,
     dmg_path: &Path,
 ) -> Result<BuildArtifacts> {
+    build_update_from(
+        &config.builder_bundle_root,
+        config,
+        state,
+        paths,
+        candidate_version,
+        dmg_path,
+    )
+    .await
+}
+
+/// Rebuilds a Linux package using an explicit wrapper/builder source tree.
+pub async fn build_update_from(
+    bundle_source: &Path,
+    config: &RuntimeConfig,
+    state: &mut PersistedState,
+    paths: &RuntimePaths,
+    candidate_version: &str,
+    dmg_path: &Path,
+) -> Result<BuildArtifacts> {
     let workspace = BuilderWorkspace::prepare(&config.workspace_root, candidate_version)?;
     let build_path = build_command_path(&config.builder_bundle_root);
+    let managed_node_source = if config.builder_bundle_root.join("node-runtime").exists() {
+        config.builder_bundle_root.join("node-runtime")
+    } else {
+        bundle_source.join("node-runtime")
+    };
 
     state.status = UpdateStatus::PreparingWorkspace;
     state.artifact_paths.workspace_dir = Some(workspace.workspace_dir.clone());
     state.save(&paths.state_file)?;
 
-    copy_builder_bundle(&config.builder_bundle_root, &workspace.bundle_dir)?;
+    copy_builder_bundle(bundle_source, &workspace.bundle_dir)?;
 
     state.status = UpdateStatus::PatchingApp;
     state.save(&paths.state_file)?;
@@ -103,10 +128,7 @@ pub async fn build_update(
                 "CODEX_REBUILD_REPORT_JSON",
                 workspace.reports_dir.join("rebuild-report.json"),
             )
-            .env(
-                "CODEX_MANAGED_NODE_SOURCE",
-                config.builder_bundle_root.join("node-runtime"),
-            )
+            .env("CODEX_MANAGED_NODE_SOURCE", managed_node_source)
             .env("PATH", &build_path)
             .current_dir(&workspace.bundle_dir),
         &workspace.install_log,

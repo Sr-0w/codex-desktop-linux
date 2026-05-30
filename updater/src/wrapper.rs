@@ -263,6 +263,16 @@ fn origin_url(repo: &Path) -> Option<String> {
     git_capture(repo, &["remote", "get-url", "origin"])
 }
 
+/// Resolves the configured wrapper remote into either an explicit URL/name or
+/// the builder checkout's origin URL.
+pub fn resolve_remote(config_remote: &str, bundle_root: &Path) -> String {
+    let trimmed = config_remote.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    origin_url(bundle_root).unwrap_or_else(|| "origin".to_string())
+}
+
 /// Queries the remote head commit for `branch` via `git ls-remote`.
 ///
 /// `remote` may be a configured remote name (`origin`) or an explicit URL. When
