@@ -123,6 +123,14 @@ function syntheticAppMainFeatureSyncBundle() {
   ].join("");
 }
 
+function syntheticCurrentAppMainFeatureSyncBundle() {
+  return [
+    "var gI=[`apps`,`memories`,`plugins`,`tool_call_mcp_elicitation`,`tool_suggest`],vI=`remote_plugin`,Ir=`local-host`,Vt=`hosts`,Ro=`features-query`,G={error(){}};",
+    "function yI(){let e=new Map,o=()=>{if(ln(`set-default-feature-overrides`,{overrides:features??null}),features==null)return;let i=bI(features,!0),o=store.get(Ir),s=new Set(store.get(Vt).filter(e=>e===o||xn(store,e).state===`connected`));for(let t of e.keys())s.has(t)||e.delete(t);let c=store.get(Vt).filter(e=>s.has(e)).flatMap(t=>(0,dv.default)(e.get(t),i)?[]:(e.set(t,i),[ln(`set-experimental-feature-enablement-for-host`,{hostId:t,enablement:i}).catch(n=>{e.delete(t),G.error(`Failed to sync experimental feature enablement`,{safe:{hostId:t},sensitive:{error:n}})})]));c.length!==0&&Promise.all(c).then(()=>{query.invalidateQueries({queryKey:Ro})})};return o()}",
+    "function bI(e,t){let n={};for(let t of gI){let r=e[t];r!=null&&(n[t]=r)}return n[vI]=t,n}",
+  ].join("");
+}
+
 function syntheticCurrentVisibilityBundle() {
   return "function Et({remoteControlConnectionsState:e,slingshotEnabled:t}){return t&&(e?.available??!0)}export{Et as t};";
 }
@@ -162,6 +170,7 @@ function syntheticSettingsBundle() {
     "tabs:[{key:`control-this-mac`,name:o===`windows`?(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.controlThisMac.windows`,defaultMessage:`Control this PC`,description:`Tab label for settings that let other devices control this Windows device`}):(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.controlThisMac`,defaultMessage:`Control this Mac`,description:`Tab label for settings that let other devices control this computer`})},{key:`access-other-devices`,name:(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.accessOtherDevices`,defaultMessage:`Control other devices`,description:`Tab label for settings that let this computer control other devices`})},{key:`ssh`,name:(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.ssh`,defaultMessage:`SSH`,description:`Tab label for SSH remote connections`})}],selectedKey:je,variant:`underline`,onSelect:se}",
     "tabs:[{key:`access-other-devices`,name:(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.accessOtherDevices`,defaultMessage:`Control other devices`,description:`Tab label for settings that let this computer control other devices`})},{key:`ssh`,name:(0,Q.jsx)(z,{id:`settings.remoteConnections.tabs.ssh`,defaultMessage:`SSH`,description:`Tab label for SSH remote connections`})}],selectedKey:je,variant:`underline`,onSelect:se}",
     "const a=`Control this Mac from your phone or other device`,b=`Add device to control this Mac remotely`,c=`Devices that can control this Mac`,d=`Keep Mac awake`,e=`Allow this Mac to be discovered and controlled`,f=`Control other devices from this Mac`,g=`Authorize this Mac to control other devices signed in to your ChatGPT account`,h=`Devices you can control from this Mac`;",
+    "let xe=!Pe&&(Te?.code===`remote-codex-not-found`||Te?.code===`update-required`);Ce=Ae==null||xe?null:Re({action:Ae.action,connection:Ee});",
     "function nr(e,t){return e.displayName.localeCompare(t.displayName)}",
     "function rr({selectedConnectionsTab:e,showControlThisMacTab:t,showRemoteControlConnectionsSection:n,showTabbedSshPage:r}){return n?e===`control-this-mac`&&!t||e===`ssh`&&!r?`access-other-devices`:e:`ssh`}",
   ].join("");
@@ -823,6 +832,46 @@ test("Linux remote-control feature sync composes with core-sanitized dynamic bui
   assert.equal(applyLinuxRemoteControlFeatureSyncPatch(patched), patched);
 });
 
+test("Linux remote-control feature sync does not advertise SSH hosts to mobile", async () => {
+  const source = syntheticCurrentAppMainFeatureSyncBundle();
+  const patched = applyLinuxRemoteControlFeatureSyncPatch(source);
+
+  assert.notEqual(patched, source);
+  assert.match(patched, /codexLinuxRemoteControlFeatureSyncEnabled/);
+
+  const calls = [];
+  const context = {
+    Promise,
+    features: { apps: true, memories: false },
+    navigator: { userAgent: "X11; Linux x86_64" },
+    query: { invalidateQueries() {} },
+    store: {
+      get(key) {
+        if (key === "local-host") return "local";
+        if (key === "hosts") return ["local", "remote-ssh-discovered:devpod"];
+        return undefined;
+      },
+    },
+    dv: { default: () => false },
+    ln(method, params) {
+      calls.push({ method, params });
+      return Promise.resolve();
+    },
+    xn(_store, hostId) {
+      return { state: hostId === "remote-ssh-discovered:devpod" ? "connected" : "disconnected" };
+    },
+  };
+  vm.runInNewContext(`${patched};yI();`, context);
+  await Promise.resolve();
+
+  const hostCalls = calls.filter((call) => call.method === "set-experimental-feature-enablement-for-host");
+  assert.equal(hostCalls.length, 2);
+  assert.equal(hostCalls[0].params.hostId, "local");
+  assert.equal(hostCalls[0].params.enablement.remote_control, true);
+  assert.equal(hostCalls[1].params.hostId, "remote-ssh-discovered:devpod");
+  assert.equal(hostCalls[1].params.enablement.remote_control, undefined);
+});
+
 test("Linux remote-control visibility patch allows Linux when upstream marks availability false", () => {
   const source = syntheticVisibilityBundle();
   const patched = applyLinuxRemoteControlVisibilityPatch(source);
@@ -897,9 +946,11 @@ test("Linux remote-control settings UX patch keeps outbound tab visible and remo
 
   assert.notEqual(patched, source);
   assert.match(patched, /codexLinuxRemoteControlSettingsTabs/);
+  assert.match(patched, /codexLinuxRemoteControlSshInstallActions/);
   assert.match(patched, /function codexLinuxRemoteControlSettingsTabs\(e\)\{return e\}/);
   assert.doesNotMatch(patched, /e\.filter\(e=>e\.key!==`access-other-devices`\)/);
   assert.match(patched, /key:`access-other-devices`/);
+  assert.match(patched, /Ce=Ae==null\?null:Re\(\{action:Ae\.action/);
   assert.match(patched, /Control this Linux desktop/);
   assert.match(patched, /Control this Linux desktop from your phone or other device/);
   assert.match(patched, /Add device to control this Linux desktop remotely/);
