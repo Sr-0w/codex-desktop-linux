@@ -3774,6 +3774,16 @@ JS
     assert_contains "$browser_client" 'async(e,t,r=$c)'
     assert_contains "$browser_client" "instanceId:await bk(o.id,e,r)"
     assert_contains "$browser_client" "codexLinuxRankBrowserBackends"
+
+    cat > "$browser_client" <<'JS'
+async function sye({globals:e}){return e}export{sye as setupBrowserRuntime};
+JS
+    local patch_log="$workspace/current-browser-client.log"
+    node "$REPO_DIR/scripts/lib/patch-chrome-plugin.js" "$chrome_dir" >"$patch_log" 2>&1
+    assert_not_contains "$patch_log" "browser-client.mjs missing patch target for Linux Chrome profile roots"
+    assert_not_contains "$patch_log" "browser-client.mjs missing patch target for Linux Chrome profile metadata lookup"
+    assert_not_contains "$patch_log" "browser-client.mjs missing patch target for Linux Chrome profile instance matching"
+    assert_not_contains "$patch_log" "browser-client.mjs missing patch target for Linux Chrome active profile backend ordering"
 }
 
 test_chrome_marketplace_fallback_synthesis() {

@@ -94,7 +94,7 @@ function applyLinuxWindowOptionsPatch(currentSource, iconAsset) {
 
 function applyLinuxNativeTitlebarPatch(currentSource) {
   const patchedPrimaryTitlebarRegex =
-    /===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:([A-Za-z_$][\w$]*)\.nativeTheme\.shouldUseDarkColors\?([A-Za-z_$][\w$]*):([A-Za-z_$][\w$]*),symbolColor:\1\.nativeTheme\.shouldUseDarkColors\?([A-Za-z_$][\w$]*):([A-Za-z_$][\w$]*),height:Math\.round\(((?:[A-Za-z_$][\w$]*|\d+(?:\.\d+)?)?)\*[A-Za-z_$][\w$]*\)\}\}/;
+    /===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:([A-Za-z_$][\w$]*)\.nativeTheme\.shouldUseDarkColors\?(?:`#[0-9A-Fa-f]{6}`|[A-Za-z_$][\w$]*):([A-Za-z_$][\w$]*),symbolColor:\1\.nativeTheme\.shouldUseDarkColors\?([A-Za-z_$][\w$]*):([A-Za-z_$][\w$]*),height:Math\.round\(((?:[A-Za-z_$][\w$]*|\d+(?:\.\d+)?)?)\*[A-Za-z_$][\w$]*\)\}\}/;
   const alreadyPatchedTitlebarMatch = currentSource.match(patchedPrimaryTitlebarRegex);
 
   const primaryTitlebarRegex =
@@ -136,10 +136,11 @@ function applyLinuxNativeTitlebarPatch(currentSource) {
     primaryTitlebarRegex.lastIndex = 0;
     patchedSource = patchedSource.replace(primaryTitlebarRegex, replacement);
   } else {
-    [, electronAlias, darkBackgroundAlias, lightBackgroundAlias, lightSymbolAlias, darkSymbolAlias, overlayHeightAlias] =
+    [, electronAlias, lightBackgroundAlias, lightSymbolAlias, darkSymbolAlias, overlayHeightAlias] =
       alreadyPatchedTitlebarMatch;
+    darkBackgroundAlias = "`#111111`";
     patchedSource = patchedSource.replace(
-      /(===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:[A-Za-z_$][\w$]*\.nativeTheme\.shouldUseDarkColors\?)[A-Za-z_$][\w$]*(:[A-Za-z_$][\w$]*,symbolColor:)/,
+      /(===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:\{color:[A-Za-z_$][\w$]*\.nativeTheme\.shouldUseDarkColors\?)(?:`#[0-9A-Fa-f]{6}`|[A-Za-z_$][\w$]*)(:[A-Za-z_$][\w$]*,symbolColor:)/,
       "$1`#111111`$2",
     );
   }
@@ -387,9 +388,14 @@ function applyLinuxAboutDialogPatch(currentSource, iconPathExpression) {
   const alreadyUsesBundledIcon =
     iconPathExpression != null &&
     currentSource.includes(`nativeImage.createFromPath(${iconPathExpression})`);
+  const aboutHtmlIconNullSafeRegex =
+    /[A-Za-z_$][\w$]*==null\|\|([A-Za-z_$][\w$]*)\.isEmpty\(\)\?null:\1\.resize\(/;
+  const aboutWindowIconNullSafeRegex =
+    /\.\.\.([A-Za-z_$][\w$]*)\.windowIcon==null\|\|\1\.windowIcon\.isEmpty\(\)\?\{\}:\{icon:\1\.windowIcon\}/;
   const alreadyNullSafe =
-    currentSource.includes("windowIcon==null||d.windowIcon.isEmpty()?{}:{icon:d.windowIcon}") &&
-    currentSource.includes("i==null||i.isEmpty()?null:i.resize(");
+    aboutWindowIconNullSafeRegex.test(currentSource) &&
+    aboutHtmlIconNullSafeRegex.test(currentSource) &&
+    /windowIcon:[A-Za-z_$][\w$]*\?\?null\}/.test(currentSource);
   if (alreadyUsesBundledIcon && alreadyNullSafe) {
     return currentSource;
   }
@@ -419,9 +425,15 @@ process.platform===\`linux\`?Promise.resolve((()=>{let __codexLinuxAboutIcon=$4.
   }
 
   patchedSource = patchedSource
-    .replace("i.isEmpty()?null:i.resize(", "i==null||i.isEmpty()?null:i.resize(")
-    .replace("windowIcon:i}", "windowIcon:i??null}")
-    .replace("windowIcon.isEmpty()?{}:{icon:d.windowIcon}", "windowIcon==null||d.windowIcon.isEmpty()?{}:{icon:d.windowIcon}");
+    .replace(
+      /([A-Za-z_$][\w$]*)\.isEmpty\(\)\?null:\1\.resize\(/g,
+      "$1==null||$1.isEmpty()?null:$1.resize(",
+    )
+    .replace(/windowIcon:([A-Za-z_$][\w$]*)\}/g, "windowIcon:$1??null}")
+    .replace(
+      /\.\.\.([A-Za-z_$][\w$]*)\.windowIcon\.isEmpty\(\)\?\{\}:\{icon:\1\.windowIcon\}/g,
+      "...$1.windowIcon==null||$1.windowIcon.isEmpty()?{}:{icon:$1.windowIcon}",
+    );
 
   if (patchedSource !== currentSource) {
     return patchedSource;

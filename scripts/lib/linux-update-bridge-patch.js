@@ -196,7 +196,15 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
   const messageDispatcherVar = bridgeHandlersSearchSource.match(
     /([A-Za-z_$][\w$]*)\.sendMessageToAllRegisteredWindows\(\{type:`app-update-ready-changed`/,
   )?.[1] ?? null;
-  if (messageDispatcherVar == null) {
+  const appUpdateStateBroadcasterVar = bridgeHandlersSearchSource.match(
+    /([A-Za-z_$][\w$]*)\.broadcastAppUpdateState\(\)/,
+  )?.[1] ?? null;
+  const sendCallback = messageDispatcherVar == null
+    ? appUpdateStateBroadcasterVar == null
+      ? null
+      : `send:()=>${appUpdateStateBroadcasterVar}.broadcastAppUpdateState()`
+    : `send:e=>${messageDispatcherVar}.sendMessageToAllRegisteredWindows(e)`;
+  if (sendCallback == null) {
     console.warn("WARN: Could not identify current updater window message dispatcher - skipping Linux updater bridge patch");
     return currentSource;
   }
@@ -208,7 +216,7 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
       patchedSource = patchedSource.replace(
         legacyBridgeRegex,
         (_match, quitControllerVar, quitFactoryVar, quitFnVar, electronBindingVar) =>
-          `let ${quitControllerVar}=${quitFactoryVar}(),${quitFnVar}=()=>{${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),${electronBindingVar}.app.quit()},codexLinuxPackageUpdateBridge=process.platform===\`linux\`?codexLinuxCreatePackageUpdateManager({allowQuit:()=>${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),send:e=>${messageDispatcherVar}.sendMessageToAllRegisteredWindows(e)}):null;codexLinuxPackageUpdateBridge!=null&&(${sparkleVar}=codexLinuxPackageUpdateBridge.manager,${quitFnVar}=codexLinuxPackageUpdateBridge.quitForUpdate,setInterval(()=>codexLinuxPackageUpdateBridge.refresh(),3e4).unref?.());`,
+          `let ${quitControllerVar}=${quitFactoryVar}(),${quitFnVar}=()=>{${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),${electronBindingVar}.app.quit()},codexLinuxPackageUpdateBridge=process.platform===\`linux\`?codexLinuxCreatePackageUpdateManager({allowQuit:()=>${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),${sendCallback}}):null;codexLinuxPackageUpdateBridge!=null&&(${sparkleVar}=codexLinuxPackageUpdateBridge.manager,${quitFnVar}=codexLinuxPackageUpdateBridge.quitForUpdate,setInterval(()=>codexLinuxPackageUpdateBridge.refresh(),3e4).unref?.());`,
       );
     } else {
       const currentBridgeRegex =
@@ -220,7 +228,7 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
       }
       const [bridgeDeclaration, quitControllerVar, quitFactoryVar, preservedVar, quitFnVar] = currentBridgeMatch;
       const bridgeSetup =
-        `${bridgeDeclaration}codexLinuxPackageUpdateBridge=process.platform===\`linux\`?codexLinuxCreatePackageUpdateManager({allowQuit:()=>${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),send:e=>${messageDispatcherVar}.sendMessageToAllRegisteredWindows(e)}):null;codexLinuxPackageUpdateBridge!=null&&(${sparkleVar}=codexLinuxPackageUpdateBridge.manager,${quitFnVar}=codexLinuxPackageUpdateBridge.quitForUpdate,setInterval(()=>codexLinuxPackageUpdateBridge.refresh(),3e4).unref?.());`;
+        `${bridgeDeclaration}codexLinuxPackageUpdateBridge=process.platform===\`linux\`?codexLinuxCreatePackageUpdateManager({allowQuit:()=>${quitControllerVar}.allowQuitTemporarilyForUpdateInstall(),${sendCallback}}):null;codexLinuxPackageUpdateBridge!=null&&(${sparkleVar}=codexLinuxPackageUpdateBridge.manager,${quitFnVar}=codexLinuxPackageUpdateBridge.quitForUpdate,setInterval(()=>codexLinuxPackageUpdateBridge.refresh(),3e4).unref?.());`;
       patchedSource = patchedSource.replace(currentBridgeRegex, bridgeSetup);
     }
   }
