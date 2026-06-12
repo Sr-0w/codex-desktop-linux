@@ -15,13 +15,13 @@ function applyBrowserUseNodeReplApprovalPatch(currentSource) {
   }
 
   const currentRuntimeConfigRegex =
-    /([A-Za-z_$][\w$]*)\.Dn\(\{([^{}]*?)nodeReplPath:([^,{}]+)(,)(?!tools:\{js:\{approval_mode:`approve`\}\})/g;
+    /([A-Za-z_$][\w$]*)\.(Dn|Pn|Fa)\(\{([^{}]*?)nodeReplPath:([^,{}]+)(,)(?!tools:\{js:\{approval_mode:`approve`\}\})/g;
   let patchedAnyCurrentRuntimeConfig = false;
   patchedSource = patchedSource.replace(
     currentRuntimeConfigRegex,
-    (_match, runtimeFactoryVar, configPrefix, nodeReplPathVar, comma) => {
+    (_match, runtimeFactoryVar, runtimeFactoryMethod, configPrefix, nodeReplPathVar, comma) => {
       patchedAnyCurrentRuntimeConfig = true;
-      return `${runtimeFactoryVar}.Dn({${configPrefix}nodeReplPath:${nodeReplPathVar}${comma}tools:{js:{approval_mode:\`approve\`}},`;
+      return `${runtimeFactoryVar}.${runtimeFactoryMethod}({${configPrefix}nodeReplPath:${nodeReplPathVar}${comma}tools:{js:{approval_mode:\`approve\`}},`;
     },
   );
 

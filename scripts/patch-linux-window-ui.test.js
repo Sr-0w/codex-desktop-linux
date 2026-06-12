@@ -4137,7 +4137,7 @@ test("patches all Browser Use node_repl approval configs in one pass", () => {
   assert.doesNotMatch(patched, /startup_timeout_sec:120,env:\{/);
 });
 
-test("auto-approves the current Browser Use node_repl runtime config builder", () => {
+test("auto-approves the older Browser Use node_repl runtime config builder", () => {
   const source =
     "return e.Dn({codexCliPath:o.codexCliPath,nodePath:o.nodePath,nodeReplPath:o.nodeReplPath,platform:o.platform})";
 
@@ -4146,6 +4146,30 @@ test("auto-approves the current Browser Use node_repl runtime config builder", (
   assert.match(
     patched,
     /e\.Dn\(\{codexCliPath:o\.codexCliPath,nodePath:o\.nodePath,nodeReplPath:o\.nodeReplPath,tools:\{js:\{approval_mode:`approve`\}\},platform:o\.platform\}\)/,
+  );
+});
+
+test("auto-approves the current Browser Use node_repl runtime config builder", () => {
+  const source =
+    "return e.Pn({codexCliPath:c.codexCliPath,codexHome:f,extraEnv:y,nodeModuleDirs:d,nodePath:c.nodePath,nodeReplPath:l?t.Cr(c.nodeReplPath):c.nodeReplPath,platform:c.platform,requestMeta:h,traceMeta:_,trustAllCode:g,trustedBrowserClientSha256s:u,shouldUseWslPaths:l})";
+
+  const patched = applyPatchTwice(applyBrowserUseNodeReplApprovalPatch, source);
+
+  assert.match(
+    patched,
+    /e\.Pn\(\{codexCliPath:c\.codexCliPath,codexHome:f,extraEnv:y,nodeModuleDirs:d,nodePath:c\.nodePath,nodeReplPath:l\?t\.Cr\(c\.nodeReplPath\):c\.nodeReplPath,tools:\{js:\{approval_mode:`approve`\}\},platform:c\.platform/,
+  );
+});
+
+test("auto-approves the Electron 42 Browser Use node_repl runtime config builder", () => {
+  const source =
+    "return t.Fa({codexCliPath:c.codexCliPath,codexHome:m,extraEnv:b,nodeModuleDirs:f,nodePath:c.nodePath,nodeReplPath:u?t.kr(c.nodeReplPath):c.nodeReplPath,platform:c.platform,requestMeta:g,sentryUserId:l,traceMeta:v,trustAllCode:_,trustedBrowserClientSha256s:d,shouldUseWslPaths:u})";
+
+  const patched = applyPatchTwice(applyBrowserUseNodeReplApprovalPatch, source);
+
+  assert.match(
+    patched,
+    /t\.Fa\(\{codexCliPath:c\.codexCliPath,codexHome:m,extraEnv:b,nodeModuleDirs:f,nodePath:c\.nodePath,nodeReplPath:u\?t\.kr\(c\.nodeReplPath\):c\.nodeReplPath,tools:\{js:\{approval_mode:`approve`\}\},platform:c\.platform/,
   );
 });
 
