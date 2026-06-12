@@ -223,7 +223,14 @@ function applyLinuxMenuPatch(currentSource) {
   let patchedAny = false;
   const patchedSource = currentSource.replace(menuRegex, (match, windowVar, offset) => {
     const linuxPatch = `process.platform===\`linux\`&&${windowVar}.setMenuBarVisibility(!1),`;
-    if (currentSource.slice(Math.max(0, offset - linuxPatch.length), offset) === linuxPatch) {
+    // The frameless-titlebar feature upgrades the inserted snippet to also
+    // call removeMenu?.(); treat that form as already applied so re-running
+    // the pipeline over feature-patched output stays idempotent.
+    const upgradedLinuxPatch = `process.platform===\`linux\`&&(${windowVar}.setMenuBarVisibility(!1),${windowVar}.removeMenu?.()),`;
+    if (
+      currentSource.slice(Math.max(0, offset - linuxPatch.length), offset) === linuxPatch ||
+      currentSource.slice(Math.max(0, offset - upgradedLinuxPatch.length), offset) === upgradedLinuxPatch
+    ) {
       return match;
     }
     patchedAny = true;

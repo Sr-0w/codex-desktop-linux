@@ -9,6 +9,15 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+// Pin the feature config so a developer's local gitignored features.json
+// cannot change which patch descriptors these core tests exercise.
+process.env.CODEX_LINUX_FEATURES_CONFIG = path.join(
+  __dirname,
+  "..",
+  "linux-features",
+  "features.example.json",
+);
+
 const {
   COMPUTER_USE_UI_ENV_VAR,
   COMPUTER_USE_UI_SETTINGS_KEY,
@@ -390,6 +399,10 @@ test("Linux target context parses distro, package, and desktop details", () => {
 
 test("build info captures DMG hash, features, distro profile, and source revision", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-build-info-"));
+  // This test reads features.json from its own featuresRoot, which the
+  // file-level CODEX_LINUX_FEATURES_CONFIG pin would otherwise override.
+  const pinnedFeaturesConfig = process.env.CODEX_LINUX_FEATURES_CONFIG;
+  delete process.env.CODEX_LINUX_FEATURES_CONFIG;
   try {
     const dmgPath = path.join(tempRoot, "Codex.dmg");
     fs.writeFileSync(dmgPath, "fake dmg payload", "utf8");
@@ -453,6 +466,9 @@ test("build info captures DMG hash, features, distro profile, and source revisio
     assert.deepEqual(info.linuxFeatures.enabled, ["read-aloud", "zed-opener"]);
     assert.equal(info.linuxFeatures.configPath, undefined);
   } finally {
+    if (pinnedFeaturesConfig != null) {
+      process.env.CODEX_LINUX_FEATURES_CONFIG = pinnedFeaturesConfig;
+    }
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
@@ -1539,6 +1555,16 @@ test("patches remaining Windows menu snippets when another copy is already Linux
     patched,
     /function createSecondWindow\(\)\{process\.platform===`linux`&&k\.setMenuBarVisibility\(!1\),process\.platform===`win32`&&k\.removeMenu\(\),\}/,
   );
+});
+
+test("recognizes the frameless-titlebar upgraded menu snippet as already applied", () => {
+  const source =
+    "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),process.platform===`win32`&&k.removeMenu(),";
+
+  const patched = applyPatchTwice(applyLinuxMenuPatch, source);
+
+  assert.equal(patched, source);
+  assert.equal((patched.match(/setMenuBarVisibility\(!1\)/g) ?? []).length, 1);
 });
 
 test("recognizes already-applied Linux opaque background patch", () => {
