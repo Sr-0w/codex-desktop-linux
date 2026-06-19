@@ -5838,6 +5838,30 @@ test("patch report marks missing required package metadata as required failure",
   }
 });
 
+test("patch report marks missing Owl feature binding bundle as required failure", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-patch-report-missing-owl-feature-"));
+  try {
+    const buildDir = path.join(tempRoot, ".vite", "build");
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.writeFileSync(path.join(buildDir, "main.js"), mainBundlePrefix);
+    fs.writeFileSync(path.join(tempRoot, "package.json"), JSON.stringify({ name: "codex" }));
+
+    const report = createPatchReport();
+    captureWarns(() => patchExtractedApp(tempRoot, { report }));
+
+    const owlPatch = report.patches.find((patch) => patch.name === "linux-owl-feature-binding-fallback");
+    assert.equal(owlPatch.status, "failed-required");
+    assert.match(owlPatch.reason, /Owl feature binding loader bundle missing/);
+    assert.ok(
+      validateReport(report, "upstream-build").some((failure) =>
+        failure.startsWith("linux-owl-feature-binding-fallback: failed-required"),
+      ),
+    );
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("patch report marks warned asset patches as required failures", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-patch-report-warned-asset-"));
   try {
