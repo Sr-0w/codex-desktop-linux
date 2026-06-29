@@ -796,6 +796,10 @@ test("default core patch descriptors are grouped and unique", () => {
     descriptors.find((descriptor) => descriptor.id === "linux-computer-use-native-desktop-apps")?.ciPolicy,
     "opt-in",
   );
+  assert.equal(
+    descriptors.find((descriptor) => descriptor.id === "linux-terminal-user-path")?.ciPolicy,
+    "optional",
+  );
   for (const id of [
     "linux-window-options",
     "linux-native-titlebar",
@@ -7612,6 +7616,46 @@ test("criticalFailuresFromReport agrees with validateReport and skips non-applic
   assert.ok(failures.some((failure) => failure.startsWith("req-bad:")));
   assert.ok(!failures.some((failure) => failure.startsWith("req-not-applicable:")));
   assert.ok(!failures.some((failure) => failure.startsWith("opt-bad:")));
+});
+
+test("terminal user PATH patch drift is reported as optional", () => {
+  const coreRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-terminal-path-optional-core-"));
+  const tempApp = fs.mkdtempSync(path.join(os.tmpdir(), "codex-terminal-path-optional-app-"));
+  try {
+    writeCorePatchFixture(coreRoot, "sample/terminal-path", [
+      "\"use strict\";",
+      "const { applyLinuxTerminalUserPathPatch } = require(",
+      `  ${JSON.stringify(path.join(__dirname, "patches", "main-process", "misc.js"))},`,
+      ");",
+      "module.exports = {",
+      "  id: \"linux-terminal-user-path\",",
+      "  phase: \"main-bundle\",",
+      "  ciPolicy: \"optional\",",
+      "  apply: applyLinuxTerminalUserPathPatch,",
+      "};",
+    ].join("\n"));
+
+    const buildDir = path.join(tempApp, ".vite", "build");
+    fs.mkdirSync(buildDir, { recursive: true });
+    fs.writeFileSync(path.join(buildDir, "main.js"), "async buildTerminalEnv(){return null}// node-pty");
+
+    const report = createPatchReport();
+    captureWarns(() => patchExtractedApp(tempApp, { report, corePatchRoot: coreRoot }));
+
+    const entry = report.patches.find((patch) => patch.name === "linux-terminal-user-path");
+    assert.equal(entry?.ciPolicy, "optional");
+    assert.equal(entry?.status, "skipped-optional");
+    assert.ok(
+      optionalDriftFromReport(report).some((drift) => drift.name === "linux-terminal-user-path"),
+      "terminal PATH drift should stay visible as optional drift",
+    );
+    assert.ok(
+      !criticalFailuresFromReport(report).some((failure) => failure.name === "linux-terminal-user-path"),
+    );
+  } finally {
+    fs.rmSync(coreRoot, { recursive: true, force: true });
+    fs.rmSync(tempApp, { recursive: true, force: true });
+  }
 });
 
 test("patchMainBundleSource survives a throwing optional patch without a report", () => {

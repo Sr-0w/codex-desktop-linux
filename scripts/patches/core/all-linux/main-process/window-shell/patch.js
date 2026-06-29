@@ -110,7 +110,7 @@ module.exports = [
     id: "linux-terminal-user-path",
     phase: "main-bundle",
     order: 105,
-    ciPolicy: "required-upstream",
+    ciPolicy: "optional",
     apply: applyLinuxTerminalUserPathPatch,
   },
   {
