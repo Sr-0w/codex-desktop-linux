@@ -104,4 +104,8 @@ This repository is not affiliated with or endorsed by OpenAI.
 
 ## License
 
-MIT
+The wrapper source code in this repository is MIT licensed.
+
+Released packages are built from upstream Codex Desktop. OpenAI-owned app
+assets, trademarks, services, and account-gated features remain under their own
+terms.

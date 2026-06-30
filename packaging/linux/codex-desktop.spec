@@ -2,7 +2,8 @@ Name:           __PACKAGE_NAME__
 Version:        __RPM_VERSION__
 Release:        __RPM_RELEASE__%{?dist}
 Summary:        Codex Desktop for Linux
-License:        Proprietary
+License:        Proprietary and MIT
+URL:            https://github.com/Sr-0w/codex-desktop-linux
 ExclusiveArch:  __ARCH__
 %global __requires_exclude_from ^/opt/__PACKAGE_NAME__/.*$
 %global __provides_exclude_from ^/opt/__PACKAGE_NAME__/.*$

@@ -1081,6 +1081,8 @@ SCRIPT
     assert_contains "$capture_dir/makepkg.conf" "COMPRESSZST=(zstd -c -z -T5 -)"
     assert_contains "$capture_dir/PKGBUILD" "pkgver=2026.03.24.120000+manual"
     assert_contains "$capture_dir/PKGBUILD" "pkgrel=1"
+    assert_contains "$capture_dir/PKGBUILD" "url=\"https://github.com/Sr-0w/codex-desktop-linux\""
+    assert_contains "$capture_dir/PKGBUILD" "license=('custom' 'MIT')"
     assert_contains "$capture_dir/PKGBUILD" "ampersand&tmp"
     assert_not_contains "$capture_dir/PKGBUILD" "__STAGING_DIR__"
     assert_contains "$capture_dir/PKGBUILD" "install=codex-desktop.install"
@@ -1845,6 +1847,7 @@ test_fedora_dependency_bootstrap_installs_rpmbuild() {
     local install_deps="$REPO_DIR/scripts/install-deps.sh"
     local helper="$REPO_DIR/scripts/lib/install-helpers.sh"
     local readme="$REPO_DIR/README.md"
+    local build_doc="$REPO_DIR/docs/BUILD.md"
 
     awk '/^install_dnf5\(\) \{/,/^}/' "$install_deps" | grep -q -- "rpm-build" \
         || fail "install_dnf5 must install rpm-build for rpmbuild"
@@ -1859,8 +1862,10 @@ test_fedora_dependency_bootstrap_installs_rpmbuild() {
     assert_contains "$install_deps" "sudo dnf install nodejs npm python3 p7zip p7zip-plugins curl unzip rpm-build make gcc-c++"
     assert_contains "$helper" "sudo dnf install python3 7zip curl unzip rpm-build make gcc-c++ @development-tools"
     assert_contains "$helper" "sudo dnf install nodejs npm python3 p7zip p7zip-plugins curl unzip rpm-build make gcc-c++"
-    assert_contains "$readme" "sudo dnf install python3 7zip curl unzip rpm-build make gcc-c++ @development-tools"
-    assert_contains "$readme" "sudo dnf install python3 p7zip p7zip-plugins curl unzip rpm-build make gcc-c++"
+    assert_contains "$readme" "docs/BUILD.md"
+    assert_not_contains "$readme" "sudo dnf install python3 7zip curl unzip rpm-build make gcc-c++ @development-tools"
+    assert_not_contains "$readme" "sudo dnf install python3 p7zip p7zip-plugins curl unzip rpm-build make gcc-c++"
+    assert_contains "$build_doc" "bash scripts/install-deps.sh"
 }
 
 test_setup_native_wizard_noninteractive_feature_writer() {
@@ -3749,7 +3754,11 @@ EOF
     assert_not_contains "$REPO_DIR/packaging/linux/control" "Depends:.*npm"
     assert_not_contains "$REPO_DIR/packaging/linux/codex-desktop.spec" "Requires:.*nodejs"
     assert_not_contains "$REPO_DIR/packaging/linux/codex-desktop.spec" "Requires:.*npm"
+    assert_contains "$REPO_DIR/packaging/linux/control" "Homepage: https://github.com/Sr-0w/codex-desktop-linux"
+    assert_contains "$REPO_DIR/packaging/linux/codex-desktop.spec" "License:        Proprietary and MIT"
+    assert_contains "$REPO_DIR/packaging/linux/codex-desktop.spec" "URL:            https://github.com/Sr-0w/codex-desktop-linux"
     assert_not_contains "$REPO_DIR/packaging/linux/PKGBUILD.template" "'nodejs>=20'"
+    assert_contains "$REPO_DIR/packaging/linux/PKGBUILD.template" "license=('custom' 'MIT')"
     assert_contains "$REPO_DIR/packaging/linux/PKGBUILD.template" "optional override for the bundled managed Node.js runtime"
     assert_contains "$REPO_DIR/scripts/lib/node-runtime.sh" "MANAGED_NODE_VERSION"
     assert_contains "$REPO_DIR/scripts/lib/package-common.sh" "node-runtime"
