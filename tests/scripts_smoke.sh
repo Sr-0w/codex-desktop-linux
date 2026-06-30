@@ -2577,6 +2577,19 @@ test_upstream_build_app_workflow_tracks_dmg_metadata() {
     assert_contains "$workflow" 'DMG SHA-256'
 }
 
+test_release_artifacts_workflow_uses_short_asset_names() {
+    info "Checking release workflow short package asset names"
+    local workflow="$REPO_DIR/.github/workflows/release-artifacts.yml"
+
+    assert_file_exists "$workflow"
+    assert_contains "$workflow" 'codex-desktop-linux-amd64.deb'
+    assert_contains "$workflow" 'codex-desktop-linux-x86_64.rpm'
+    assert_contains "$workflow" 'codex-desktop-linux-x86_64.pkg.tar.zst'
+    assert_contains "$workflow" 'codex-desktop-linux-x86_64.AppImage'
+    assert_contains "$workflow" 'path: release-assets'
+    assert_contains "$workflow" 'Release asset filenames are intentionally short'
+}
+
 test_installer_detects_electron_version_from_plist() {
     info "Checking Electron version detection from app metadata"
     local workspace="$TMP_DIR/electron-version"
@@ -6540,6 +6553,7 @@ main() {
     test_setup_native_wizard_dry_run_cleanup_does_not_delete_confirmed_paths
     test_setup_native_wizard_cleanup_deletes_only_confirmed_paths
     test_upstream_build_app_workflow_tracks_dmg_metadata
+    test_release_artifacts_workflow_uses_short_asset_names
     test_installer_detects_electron_version_from_plist
     test_installer_keeps_electron_fallback_for_bad_metadata
     test_port_validation_rejects_oversized_numeric_values

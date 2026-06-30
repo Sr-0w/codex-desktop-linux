@@ -29,11 +29,11 @@ Download the latest package from
 
 | Platform | Artifact | Install command |
 |---|---|---|
-| Debian, Ubuntu, Pop!_OS, Mint | `codex-desktop_*.deb` | `sudo apt install ./codex-desktop_*.deb` |
-| Fedora | `codex-desktop-*.rpm` | `sudo dnf install ./codex-desktop-*.rpm` |
-| openSUSE | `codex-desktop-*.rpm` | `sudo zypper install ./codex-desktop-*.rpm` |
-| Arch, Manjaro, EndeavourOS | `codex-desktop-*.pkg.tar.zst` | `sudo pacman -U ./codex-desktop-*.pkg.tar.zst` |
-| Other Linux distros | `codex-desktop-*.AppImage` | `chmod +x ./codex-desktop-*.AppImage && ./codex-desktop-*.AppImage` |
+| Debian, Ubuntu, Pop!_OS, Mint | `codex-desktop-linux-amd64.deb` | `sudo apt install ./codex-desktop-linux-amd64.deb` |
+| Fedora | `codex-desktop-linux-x86_64.rpm` | `sudo dnf install ./codex-desktop-linux-x86_64.rpm` |
+| openSUSE | `codex-desktop-linux-x86_64.rpm` | `sudo zypper install ./codex-desktop-linux-x86_64.rpm` |
+| Arch, Manjaro, EndeavourOS | `codex-desktop-linux-x86_64.pkg.tar.zst` | `sudo pacman -U ./codex-desktop-linux-x86_64.pkg.tar.zst` |
+| Other Linux distros | `codex-desktop-linux-x86_64.AppImage` | `chmod +x ./codex-desktop-linux-x86_64.AppImage && ./codex-desktop-linux-x86_64.AppImage` |
 
 Native packages install the app as `codex-desktop` and include the local update
 manager. AppImage builds are portable and update manually by downloading a newer

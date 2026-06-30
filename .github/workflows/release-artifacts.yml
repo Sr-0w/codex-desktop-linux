@@ -286,15 +286,18 @@ jobs:
           APPIMAGETOOL="$HOME/.local/bin/appimagetool" ./scripts/build-appimage.sh
           appimage_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.AppImage' -print -quit)"
           test -n "$appimage_file"
-          sha256sum "$appimage_file" > "$appimage_file.sha256"
+          mkdir -p release-assets
+          cp "$appimage_file" release-assets/codex-desktop-linux-x86_64.AppImage
+          (
+            cd release-assets
+            sha256sum codex-desktop-linux-x86_64.AppImage > codex-desktop-linux-x86_64.AppImage.sha256
+          )
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-appimage
-          path: |
-            dist/*.AppImage
-            dist/*.AppImage.sha256
+          path: release-assets/*
 
   package-deb:
     name: Build Debian Package
@@ -340,15 +343,18 @@ jobs:
           dpkg-deb -c "$deb_file" | tee /tmp/deb-contents.txt >/dev/null
           grep -q './usr/bin/codex-update-manager' /tmp/deb-contents.txt
           grep -q './opt/codex-desktop/update-builder/install.sh' /tmp/deb-contents.txt
-          sha256sum "$deb_file" > "$deb_file.sha256"
+          mkdir -p release-assets
+          cp "$deb_file" release-assets/codex-desktop-linux-amd64.deb
+          (
+            cd release-assets
+            sha256sum codex-desktop-linux-amd64.deb > codex-desktop-linux-amd64.deb.sha256
+          )
 
       - name: Upload Debian artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-deb
-          path: |
-            dist/*.deb
-            dist/*.deb.sha256
+          path: release-assets/*
 
   package-rpm:
     name: Build RPM Package
@@ -394,15 +400,18 @@ jobs:
           rpm -qlp "$rpm_file" | tee /tmp/rpm-contents.txt >/dev/null
           grep -q '/usr/bin/codex-update-manager' /tmp/rpm-contents.txt
           grep -q '/opt/codex-desktop/update-builder/install.sh' /tmp/rpm-contents.txt
-          sha256sum "$rpm_file" > "$rpm_file.sha256"
+          mkdir -p release-assets
+          cp "$rpm_file" release-assets/codex-desktop-linux-x86_64.rpm
+          (
+            cd release-assets
+            sha256sum codex-desktop-linux-x86_64.rpm > codex-desktop-linux-x86_64.rpm.sha256
+          )
 
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-rpm
-          path: |
-            dist/*.rpm
-            dist/*.rpm.sha256
+          path: release-assets/*
 
   package-pacman:
     name: Build Pacman Package
@@ -455,7 +464,12 @@ jobs:
                 pacman -Qlp "$pkg_file" | tee /tmp/pacman-contents.txt >/dev/null
                 grep -q "usr/bin/codex-update-manager" /tmp/pacman-contents.txt
                 grep -q "opt/codex-desktop/update-builder/install.sh" /tmp/pacman-contents.txt
-                sha256sum "$pkg_file" > "$pkg_file.sha256"
+                mkdir -p release-assets
+                cp "$pkg_file" release-assets/codex-desktop-linux-x86_64.pkg.tar.zst
+                (
+                  cd release-assets
+                  sha256sum codex-desktop-linux-x86_64.pkg.tar.zst > codex-desktop-linux-x86_64.pkg.tar.zst.sha256
+                )
                 rm -f dist/codex-desktop-latest.pkg.tar.zst
               '"'"'
             '
@@ -464,11 +478,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-pacman
-          path: |
-            dist/*.pkg.tar.zst
-            dist/*.pkg.tar.xz
-            dist/*.pkg.tar.zst.sha256
-            dist/*.pkg.tar.xz.sha256
+          path: release-assets/*
 
   publish-release:
     name: Publish GitHub Release
@@ -516,6 +526,8 @@ jobs:
               ! -name '*.sha256' \
               \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.*' \) \
               -printf '- `%f`\n' | sort
+            echo ""
+            echo "Release asset filenames are intentionally short; exact versions stay in package metadata and \`build-info.json\`."
             echo ""
             echo "Checksums are uploaded next to each package as \`.sha256\` files."
           } > release-notes.md

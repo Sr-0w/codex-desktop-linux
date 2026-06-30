@@ -24,14 +24,17 @@ Manual inputs:
 
 The workflow uploads:
 
-- `codex-desktop-*.AppImage`
-- `codex-desktop_*.deb`
-- `codex-desktop-*.rpm`
-- `codex-desktop-*.pkg.tar.zst`
+- `codex-desktop-linux-x86_64.AppImage`
+- `codex-desktop-linux-amd64.deb`
+- `codex-desktop-linux-x86_64.rpm`
+- `codex-desktop-linux-x86_64.pkg.tar.zst`
 - matching `.sha256` checksum files
 - `upstream-dmg-metadata.json`
 - `patch-report.json`
 - `build-info.json`
+
+Release asset names stay short for readability in GitHub. Exact package
+versions are stored in each native package and in `build-info.json`.
 
 ## Required Checks
 
