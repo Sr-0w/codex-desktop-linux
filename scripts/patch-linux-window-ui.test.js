@@ -68,6 +68,7 @@ const {
   applyLinuxSetIconPatch,
   applyLinuxRemoteControlConfigPreservationPatch,
   applyLinuxSingleInstancePatch,
+  applyLinuxSystemThemePollingPatch,
   applyLinuxTrayCloseSettingPatch,
   applyLinuxTrayPatch,
   applyLinuxWillQuitDrainTimeoutPatch,
@@ -710,6 +711,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-window-options",
     "linux-about-dialog",
     "linux-native-titlebar",
+    "linux-system-theme-polling",
     "linux-menu",
     "linux-multi-instance-bootstrap-lock",
     "linux-set-icon",
@@ -2024,6 +2026,39 @@ test("updates the Linux native titlebar overlay when nativeTheme changes", () =>
   );
   assert.doesNotMatch(patched, /webContents\.executeJavaScript\(/);
   assert.doesNotMatch(patched, /data-codex-window-type/);
+});
+
+test("polls Linux nativeTheme when system theme update events do not arrive", () => {
+  const source = [
+    "var Jl=`codex_desktop:get-system-theme-variant`,Zl=`codex_desktop:system-theme-variant-updated`;",
+    "a.ipcMain.on(Jl,e=>{if(!L(e)){e.returnValue=`light`;return}e.returnValue=a.nativeTheme.shouldUseDarkColors?`dark`:`light`});",
+    "let ee=()=>{let e=a.nativeTheme.shouldUseDarkColors?`dark`:`light`;N.windowManager.refreshWindowBackdrops();for(let t of a.BrowserWindow.getAllWindows())t.isDestroyed()||t.webContents.send(Zl,e)};a.nativeTheme.on(`updated`,ee),k.add(()=>{a.nativeTheme.off(`updated`,ee)});",
+  ].join("");
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxSystemThemePollingPatch, source),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(
+    patched,
+    /function codexLinuxInstallSystemThemePolling\(e,t,n=1000\)\{if\(process\.platform!==`linux`\)return\(\)=>\{\}/,
+  );
+  assert.match(patched, /function codexLinuxGetSystemThemeVariant\(e\)/);
+  assert.match(patched, /gtk-application-prefer-dark-theme/);
+  assert.match(patched, /LookAndFeelPackage/);
+  assert.match(patched, /org\.freedesktop\.portal\.Settings\.Read/);
+  assert.match(patched, /e\.returnValue=codexLinuxGetSystemThemeVariant\(a\)/);
+  assert.match(patched, /let ee=\(\)=>\{let e=codexLinuxGetSystemThemeVariant\(a\);/);
+  assert.match(
+    patched,
+    /let o=setInterval\(\(\)=>\{let s=codexLinuxGetSystemThemeVariant\(e\);if\(s===r\)return;r=s,typeof e\.nativeTheme\.emit===`function`\?e\.nativeTheme\.emit\(`updated`\):t\(\)\},n\)/,
+  );
+  assert.match(patched, /k\.add\(codexLinuxInstallSystemThemePolling\(a,ee\)\)/);
+  assert.equal((patched.match(/function codexLinuxInstallSystemThemePolling/g) ?? []).length, 1);
+  assert.equal((patched.match(/function codexLinuxGetSystemThemeVariant/g) ?? []).length, 1);
+  assert.equal((patched.match(/codexLinuxInstallSystemThemePolling\(a,ee\)/g) ?? []).length, 1);
+  assert.doesNotMatch(patched, /returnValue=a\.nativeTheme\.shouldUseDarkColors/);
+  assert.doesNotMatch(patched, /let ee=\(\)=>\{let e=a\.nativeTheme\.shouldUseDarkColors/);
 });
 
 test("redirects the renamed Linux-aware titlebar overlay sync away from the transparent win32 helper", () => {

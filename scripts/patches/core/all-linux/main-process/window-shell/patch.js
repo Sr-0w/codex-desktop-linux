@@ -9,6 +9,7 @@ const {
   applyLinuxReadyToShowWindowStatePatch,
   applyLinuxResizeRepaintPatch,
   applyLinuxOpaqueBackgroundPatch,
+  applyLinuxSystemThemePollingPatch,
   applyLinuxFileManagerPatch,
   patchLinuxWorkerFileManagerTarget,
   applyLinuxTerminalUserPathPatch,
@@ -47,6 +48,13 @@ module.exports = [
     order: 85,
     ciPolicy: "required-upstream",
     apply: applyLinuxNativeTitlebarPatch,
+  },
+  {
+    id: "linux-system-theme-polling",
+    phase: "main-bundle",
+    order: 86,
+    ciPolicy: "optional",
+    apply: applyLinuxSystemThemePollingPatch,
   },
   {
     id: "linux-set-icon",

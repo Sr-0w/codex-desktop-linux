@@ -36,6 +36,7 @@ APP_PID_FILE="$APP_STATE_DIR/app.pid"
 WEBVIEW_PID_FILE="$APP_STATE_DIR/webview.pid"
 LAUNCH_ACTION_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$APP_STATE_DIR}/$CODEX_LINUX_APP_ID"
 LAUNCH_ACTION_SOCKET="$LAUNCH_ACTION_RUNTIME_DIR/launch-action.sock"
+BROWSER_USE_RUNTIME_LINK_DIR="$LAUNCH_ACTION_RUNTIME_DIR/browser-use-runtime"
 PACKAGED_RUNTIME_HELPER="$SCRIPT_DIR/.codex-linux/codex-packaged-runtime.sh"
 COLD_START_HOOK_DIR="$SCRIPT_DIR/.codex-linux/cold-start.d"
 FEATURE_ENV_DIR="$SCRIPT_DIR/.codex-linux/env.d"
@@ -187,6 +188,7 @@ configure_multi_launch_instance() {
         LAUNCH_ACTION_RUNTIME_DIR="$APP_STATE_DIR"
     fi
     LAUNCH_ACTION_SOCKET="$LAUNCH_ACTION_RUNTIME_DIR/launch-action.sock"
+    BROWSER_USE_RUNTIME_LINK_DIR="$LAUNCH_ACTION_RUNTIME_DIR/browser-use-runtime"
     LOG_FILE="$LOG_DIR/launcher-$CODEX_LINUX_INSTANCE_ID.log"
 
     if [ -n "${CODEX_ELECTRON_USER_DATA_DIR:-}" ]; then
@@ -330,6 +332,59 @@ replace_symlink() {
     if ! ln -sfnT "$target" "$link_path" 2>/dev/null; then
         remove_tree_if_exists "$link_path"
         ln -sfnT "$target" "$link_path"
+    fi
+}
+
+is_stale_appimage_mount_path() {
+    local path="$1"
+
+    case "$path" in
+        /tmp/.mount_*/*)
+            case "$path" in
+                "$SCRIPT_DIR"/*) return 1 ;;
+                *) return 0 ;;
+            esac
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+should_replace_browser_use_file_env() {
+    local current="${1:-}"
+    local replacement="${2:-}"
+
+    [ -n "$replacement" ] || return 1
+    [ -x "$replacement" ] || return 1
+    [ -n "$current" ] || return 0
+    [ -x "$current" ] || return 0
+    is_stale_appimage_mount_path "$current"
+}
+
+should_replace_browser_use_dir_env() {
+    local current="${1:-}"
+    local replacement="${2:-}"
+
+    [ -n "$replacement" ] || return 1
+    [ -d "$replacement" ] || return 1
+    [ -n "$current" ] || return 0
+    [ -d "$current" ] || return 0
+    is_stale_appimage_mount_path "$current"
+}
+
+refresh_browser_use_runtime_links() {
+    local link_dir="$BROWSER_USE_RUNTIME_LINK_DIR"
+
+    mkdir -p "$link_dir" || return 0
+    chmod 700 "$link_dir" 2>/dev/null || true
+
+    if [ -d "$SCRIPT_DIR/resources" ]; then
+        replace_symlink "$SCRIPT_DIR/resources" "$link_dir/resources"
+    fi
+    if [ -x "$MANAGED_NODE_BIN_DIR/node" ]; then
+        replace_symlink "$MANAGED_NODE_BIN_DIR/node" "$link_dir/node"
+    fi
+    if [ -x "$SCRIPT_DIR/resources/node_repl" ]; then
+        replace_symlink "$SCRIPT_DIR/resources/node_repl" "$link_dir/node_repl"
     fi
 }
 
@@ -1157,40 +1212,57 @@ sync_extra_bundled_plugin_cache() {
 }
 
 resolve_browser_use_runtime_env() {
-    if [ -z "${CODEX_ELECTRON_RESOURCES_PATH:-}" ]; then
-        export CODEX_ELECTRON_RESOURCES_PATH="$SCRIPT_DIR/resources"
+    local stable_resources_path="$BROWSER_USE_RUNTIME_LINK_DIR/resources"
+    local stable_node_path="$BROWSER_USE_RUNTIME_LINK_DIR/node"
+    local stable_node_repl_path="$BROWSER_USE_RUNTIME_LINK_DIR/node_repl"
+    local selected_node_path=""
+    local selected_node_repl_path=""
+    local codex_runtime_node_repl
+
+    refresh_browser_use_runtime_links
+
+    if [ ! -d "$stable_resources_path" ]; then
+        stable_resources_path="$SCRIPT_DIR/resources"
+    fi
+    if should_replace_browser_use_dir_env "${CODEX_ELECTRON_RESOURCES_PATH:-}" "$stable_resources_path"; then
+        export CODEX_ELECTRON_RESOURCES_PATH="$stable_resources_path"
     fi
 
-    if [ -z "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
-        if [ -x "$MANAGED_NODE_BIN_DIR/node" ]; then
-            export CODEX_BROWSER_USE_NODE_PATH="$MANAGED_NODE_BIN_DIR/node"
-        elif [ -x "$SCRIPT_DIR/resources/node" ]; then
-            export CODEX_BROWSER_USE_NODE_PATH="$SCRIPT_DIR/resources/node"
-        elif command -v node >/dev/null 2>&1; then
-            CODEX_BROWSER_USE_NODE_PATH="$(command -v node)"
-            export CODEX_BROWSER_USE_NODE_PATH
-        fi
+    if [ -x "$stable_node_path" ]; then
+        selected_node_path="$stable_node_path"
+    elif [ -x "$MANAGED_NODE_BIN_DIR/node" ]; then
+        selected_node_path="$MANAGED_NODE_BIN_DIR/node"
+    elif [ -x "$SCRIPT_DIR/resources/node" ]; then
+        selected_node_path="$SCRIPT_DIR/resources/node"
+    elif command -v node >/dev/null 2>&1; then
+        selected_node_path="$(command -v node)"
+    fi
+    if should_replace_browser_use_file_env "${CODEX_BROWSER_USE_NODE_PATH:-}" "$selected_node_path"; then
+        export CODEX_BROWSER_USE_NODE_PATH="$selected_node_path"
     fi
 
-    if [ -z "${NODE_REPL_NODE_PATH:-}" ] && [ -n "${CODEX_BROWSER_USE_NODE_PATH:-}" ]; then
+    if should_replace_browser_use_file_env "${NODE_REPL_NODE_PATH:-}" "${CODEX_BROWSER_USE_NODE_PATH:-}"; then
         export NODE_REPL_NODE_PATH="$CODEX_BROWSER_USE_NODE_PATH"
     fi
 
-    if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
-        codex_runtime_node_repl="${XDG_CACHE_HOME:-$HOME/.cache}/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl"
-        if [ -x "$SCRIPT_DIR/resources/node_repl" ]; then
-            export CODEX_NODE_REPL_PATH="$SCRIPT_DIR/resources/node_repl"
-        elif command -v node_repl >/dev/null 2>&1; then
-            CODEX_NODE_REPL_PATH="$(command -v node_repl)"
-            export CODEX_NODE_REPL_PATH
-        elif [ -x "$codex_runtime_node_repl" ]; then
-            export CODEX_NODE_REPL_PATH="$codex_runtime_node_repl"
-        fi
+    codex_runtime_node_repl="${XDG_CACHE_HOME:-$HOME/.cache}/codex-runtimes/codex-primary-runtime/dependencies/bin/node_repl"
+    if [ -x "$stable_node_repl_path" ]; then
+        selected_node_repl_path="$stable_node_repl_path"
+    elif [ -x "$SCRIPT_DIR/resources/node_repl" ]; then
+        selected_node_repl_path="$SCRIPT_DIR/resources/node_repl"
+    elif command -v node_repl >/dev/null 2>&1; then
+        selected_node_repl_path="$(command -v node_repl)"
+    elif [ -x "$codex_runtime_node_repl" ]; then
+        selected_node_repl_path="$codex_runtime_node_repl"
+    fi
+    if should_replace_browser_use_file_env "${CODEX_NODE_REPL_PATH:-}" "$selected_node_repl_path"; then
+        export CODEX_NODE_REPL_PATH="$selected_node_repl_path"
     fi
 
     if [ -z "${CODEX_NODE_REPL_PATH:-}" ]; then
         echo "Browser Use node_repl runtime not found; in-app browser automation may be unavailable."
     fi
+    echo "Browser Use runtime env: resources=${CODEX_ELECTRON_RESOURCES_PATH:-unset} node=${CODEX_BROWSER_USE_NODE_PATH:-unset} node_repl=${CODEX_NODE_REPL_PATH:-unset}"
 }
 
 run_cold_start_hooks() {
@@ -1565,20 +1637,6 @@ pid_matches_executable() {
     ! pid_is_electron_helper "$pid"
 }
 
-find_running_app_pid() {
-    local pid
-
-    if [ -f "$APP_PID_FILE" ]; then
-        pid="$(cat "$APP_PID_FILE" 2>/dev/null || true)"
-        if pid_matches_executable "$pid" "$SCRIPT_DIR/electron"; then
-            echo "$pid"
-            return 0
-        fi
-    fi
-
-    return 1
-}
-
 pid_in_same_launch_instance() {
     # The /proc scan matches by electron binary path, which side-by-side
     # multi-launch instances share with the default app. Match instance
@@ -1633,6 +1691,36 @@ pid_is_foreign_codex_electron() {
     pid_matches_app_identity "$pid"
 }
 
+pid_is_running_app_instance() {
+    local pid="$1"
+
+    if pid_matches_executable "$pid" "$SCRIPT_DIR/electron"; then
+        pid_in_same_launch_instance "$pid"
+        return $?
+    fi
+
+    if pid_is_foreign_codex_electron "$pid"; then
+        pid_in_same_launch_instance "$pid"
+        return $?
+    fi
+
+    return 1
+}
+
+find_running_app_pid() {
+    local pid
+
+    if [ -f "$APP_PID_FILE" ]; then
+        pid="$(cat "$APP_PID_FILE" 2>/dev/null || true)"
+        if pid_is_running_app_instance "$pid"; then
+            echo "$pid"
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 discover_running_app_pid() {
     local pid
     local proc_cmdline
@@ -1641,7 +1729,7 @@ discover_running_app_pid() {
         [ -r "$proc_cmdline" ] || continue
         pid="${proc_cmdline#/proc/}"
         pid="${pid%/cmdline}"
-        if pid_matches_executable "$pid" "$SCRIPT_DIR/electron" && pid_in_same_launch_instance "$pid"; then
+        if pid_is_running_app_instance "$pid"; then
             echo "$pid"
             return 0
         fi
@@ -1765,7 +1853,7 @@ set_detected_running_app() {
 }
 
 running_app_is_active() {
-    [ -n "${RUNNING_APP_PID:-}" ] && pid_matches_executable "$RUNNING_APP_PID" "$SCRIPT_DIR/electron"
+    [ -n "${RUNNING_APP_PID:-}" ] && pid_is_running_app_instance "$RUNNING_APP_PID"
 }
 
 using_second_instance_handoff() {
@@ -2962,7 +3050,7 @@ launch_electron() {
         exec "$SCRIPT_DIR/electron" "${ELECTRON_LAUNCH_ARGS[@]}" "${ELECTRON_ARGS[@]}"
     ) &
     ELECTRON_PID=$!
-    if [ -n "${RUNNING_APP_PID:-}" ] && pid_matches_executable "$RUNNING_APP_PID" "$SCRIPT_DIR/electron"; then
+    if [ -n "${RUNNING_APP_PID:-}" ] && pid_is_running_app_instance "$RUNNING_APP_PID"; then
         echo "Preserving Codex Desktop pid=$RUNNING_APP_PID liveness marker for second-instance handoff"
     else
         echo "$ELECTRON_PID" > "$APP_PID_FILE"

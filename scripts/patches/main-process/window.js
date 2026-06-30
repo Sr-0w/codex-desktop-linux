@@ -341,6 +341,72 @@ function applyLinuxNativeTitlebarPatch(currentSource) {
   return patchedSource;
 }
 
+function linuxSystemThemeHelperSource() {
+  return [
+    "function codexLinuxReadText(e){try{return require(`node:fs`).readFileSync(e,`utf8`)}catch{return null}}",
+    "function codexLinuxConfigPath(...e){try{let t=process.env.XDG_CONFIG_HOME||process.env.HOME&&require(`node:path`).join(process.env.HOME,`.config`);return t?require(`node:path`).join(t,...e):null}catch{return null}}",
+    "function codexLinuxIniValue(e,t,n){let r=null;for(let i of String(e||``).split(/\\r?\\n/)){let a=i.trim();if(!a||a.startsWith(`#`)||a.startsWith(`;`))continue;if(a.startsWith(`[`)&&a.endsWith(`]`)){r=a.slice(1,-1);continue}let o=a.indexOf(`=`);if(o<1)continue;if((t==null||r===t)&&a.slice(0,o).trim()===n)return a.slice(o+1).trim()}return null}",
+    "function codexLinuxVariantFromName(e){let t=String(e||``).toLowerCase();return/(^|[^a-z])(dark|black|night|noir|dunkel)([^a-z]|$)/.test(t)?`dark`:/(^|[^a-z])(light|white|day|clair|hell)([^a-z]|$)/.test(t)?`light`:null}",
+    "function codexLinuxGtkThemeVariant(){for(let e of[[`gtk-4.0`,`settings.ini`],[`gtk-3.0`,`settings.ini`]]){let t=codexLinuxReadText(codexLinuxConfigPath(...e));if(!t)continue;let n=codexLinuxIniValue(t,`Settings`,`gtk-application-prefer-dark-theme`)??codexLinuxIniValue(t,null,`gtk-application-prefer-dark-theme`);if(n!=null){let e=String(n).toLowerCase();if(e===`1`||e===`true`||e===`yes`)return`dark`;if(e===`0`||e===`false`||e===`no`)return`light`}let r=codexLinuxVariantFromName(codexLinuxIniValue(t,`Settings`,`gtk-theme-name`)??codexLinuxIniValue(t,null,`gtk-theme-name`));if(r)return r}return null}",
+    "function codexLinuxKdeThemeVariant(){let e=codexLinuxReadText(codexLinuxConfigPath(`kdeglobals`));if(!e)return null;for(let t of[[`KDE`,`LookAndFeelPackage`],[`General`,`ColorScheme`],[null,`LookAndFeelPackage`],[null,`ColorScheme`]]){let n=codexLinuxVariantFromName(codexLinuxIniValue(e,t[0],t[1]));if(n)return n}return null}",
+    "function codexLinuxPortalThemeVariant(){try{let e=require(`node:child_process`).execFileSync(`gdbus`,[`call`,`--session`,`--dest`,`org.freedesktop.portal.Desktop`,`--object-path`,`/org/freedesktop/portal/desktop`,`--method`,`org.freedesktop.portal.Settings.Read`,`org.freedesktop.appearance`,`color-scheme`],{encoding:`utf8`,timeout:500,stdio:[`ignore`,`pipe`,`ignore`]});return/uint32\\s+1/.test(e)?`dark`:/uint32\\s+2/.test(e)?`light`:null}catch{return null}}",
+    "function codexLinuxGetSystemThemeVariant(e){if(process.platform===`linux`){let t=process.env.CODEX_LINUX_SYSTEM_THEME_VARIANT;if(t===`dark`||t===`light`)return t;let n=codexLinuxGtkThemeVariant()??codexLinuxKdeThemeVariant()??codexLinuxPortalThemeVariant();if(n)return n}return e.nativeTheme.shouldUseDarkColors?`dark`:`light`}",
+    "function codexLinuxInstallSystemThemePolling(e,t,n=1000){if(process.platform!==`linux`)return()=>{};let r=codexLinuxGetSystemThemeVariant(e),i=()=>{r=codexLinuxGetSystemThemeVariant(e)};e.nativeTheme.on(`updated`,i);let o=setInterval(()=>{let s=codexLinuxGetSystemThemeVariant(e);if(s===r)return;r=s,typeof e.nativeTheme.emit===`function`?e.nativeTheme.emit(`updated`):t()},n);return o.unref?.(),()=>{clearInterval(o),e.nativeTheme.off(`updated`,i)}}",
+  ].join("");
+}
+
+function applyLinuxSystemThemePollingPatch(currentSource) {
+  let patchedSource = currentSource;
+  const helperSource = linuxSystemThemeHelperSource();
+  const legacyHelperRegex =
+    /function codexLinuxInstallSystemThemePolling\(e,t,n=1000\)\{if\(process\.platform!==`linux`\)return\(\)=>\{\};let r=e\.nativeTheme\.shouldUseDarkColors===!0,i=\(\)=>\{r=e\.nativeTheme\.shouldUseDarkColors===!0\};e\.nativeTheme\.on\(`updated`,i\);let o=setInterval\(\(\)=>\{let s=e\.nativeTheme\.shouldUseDarkColors===!0;if\(s===r\)return;r=s,typeof e\.nativeTheme\.emit===`function`\?e\.nativeTheme\.emit\(`updated`\):t\(\)\},n\);return o\.unref\?\.\(\),\(\)=>\{clearInterval\(o\),e\.nativeTheme\.off\(`updated`,i\)\}\}/;
+  patchedSource = patchedSource.replace(legacyHelperRegex, "");
+
+  const nativeThemeBridgeRegex =
+    /let ([A-Za-z_$][\w$]*)=\(\)=>\{let ([A-Za-z_$][\w$]*)=(?:([A-Za-z_$][\w$]*)\.nativeTheme\.shouldUseDarkColors\?`dark`:`light`|codexLinuxGetSystemThemeVariant\(([A-Za-z_$][\w$]*)\));([A-Za-z_$][\w$]*)\.windowManager\.refreshWindowBackdrops\(\);for\(let ([A-Za-z_$][\w$]*) of (?:\3|\4)\.BrowserWindow\.getAllWindows\(\)\)\6\.isDestroyed\(\)\|\|\6\.webContents\.send\(([A-Za-z_$][\w$]*),\2\)\};(?:\3|\4)\.nativeTheme\.on\(`updated`,\1\),([A-Za-z_$][\w$]*)\.add\(\(\)=>\{(?:\3|\4)\.nativeTheme\.off\(`updated`,\1\)\}\)(?:,\8\.add\(codexLinuxInstallSystemThemePolling\((?:\3|\4),\1\)\))?/;
+  const match = patchedSource.match(nativeThemeBridgeRegex);
+  if (match == null) {
+    if (
+      patchedSource.includes("get-system-theme-variant") ||
+      patchedSource.includes("system-theme-variant-updated")
+    ) {
+      console.warn("WARN: Could not find nativeTheme bridge snippet — skipping Linux system theme polling patch");
+    }
+    return patchedSource;
+  }
+
+  const [
+    matchedSource,
+    updateHandlerAlias,
+    themeVariantAlias,
+    nativeElectronAlias,
+    patchedElectronAlias,
+    windowManagerAlias,
+    windowAlias,
+    themeVariantChannelAlias,
+    disposablesAlias,
+  ] = match;
+  const electronAlias = nativeElectronAlias ?? patchedElectronAlias;
+  const helperPrefix = patchedSource.includes("function codexLinuxGetSystemThemeVariant(")
+    ? ""
+    : helperSource;
+  const replacement =
+    `${helperPrefix}let ${updateHandlerAlias}=()=>{let ${themeVariantAlias}=codexLinuxGetSystemThemeVariant(${electronAlias});${windowManagerAlias}.windowManager.refreshWindowBackdrops();for(let ${windowAlias} of ${electronAlias}.BrowserWindow.getAllWindows())${windowAlias}.isDestroyed()||${windowAlias}.webContents.send(${themeVariantChannelAlias},${themeVariantAlias})};${electronAlias}.nativeTheme.on(\`updated\`,${updateHandlerAlias}),${disposablesAlias}.add(()=>{${electronAlias}.nativeTheme.off(\`updated\`,${updateHandlerAlias})}),${disposablesAlias}.add(codexLinuxInstallSystemThemePolling(${electronAlias},${updateHandlerAlias}))`;
+
+  patchedSource = patchedSource.replace(matchedSource, replacement);
+  const ipcThemeVariantRegex =
+    new RegExp(
+      `([A-Za-z_$][\\w$]*)\\.ipcMain\\.on\\(([A-Za-z_$][\\w$]*),([A-Za-z_$][\\w$]*)=>\\{if\\(!([A-Za-z_$][\\w$]*)\\(\\3\\)\\)\\{\\3\\.returnValue=\`light\`;return\\}\\3\\.returnValue=(?:\\1\\.nativeTheme\\.shouldUseDarkColors\\?\`dark\`:\`light\`|codexLinuxGetSystemThemeVariant\\(\\1\\))\\}\\);`,
+    );
+  patchedSource = patchedSource.replace(
+    ipcThemeVariantRegex,
+    (_ipcMatch, ipcElectronAlias, channelAlias, eventAlias, trustAlias) =>
+      `${ipcElectronAlias}.ipcMain.on(${channelAlias},${eventAlias}=>{if(!${trustAlias}(${eventAlias})){${eventAlias}.returnValue=\`light\`;return}${eventAlias}.returnValue=codexLinuxGetSystemThemeVariant(${ipcElectronAlias})});`,
+  );
+
+  return patchedSource;
+}
+
 function applyLinuxMenuPatch(currentSource) {
   const menuRegex = /process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\),/g;
   let patchedAny = false;
@@ -692,5 +758,6 @@ module.exports = {
   applyLinuxReadyToShowWindowStatePatch,
   applyLinuxResizeRepaintPatch,
   applyLinuxSetIconPatch,
+  applyLinuxSystemThemePollingPatch,
   applyLinuxWindowOptionsPatch,
 };

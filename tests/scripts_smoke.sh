@@ -3277,10 +3277,25 @@ if "preserving liveness marker for second-instance handoff" not in source:
     raise SystemExit("detect_warm_start must preserve the live app liveness marker")
 if launch_body.count("unset ELECTRON_RUN_AS_NODE") != 2:
     raise SystemExit("launch_electron must clear ELECTRON_RUN_AS_NODE before both Electron launch paths")
-if 'pid_matches_executable "$RUNNING_APP_PID" "$SCRIPT_DIR/electron"' not in launch_body:
-    raise SystemExit("launch_electron must not overwrite APP_PID_FILE for second-instance handoff")
+if 'pid_is_running_app_instance "$RUNNING_APP_PID"' not in launch_body:
+    raise SystemExit("launch_electron must preserve APP_PID_FILE for AppImage remount second-instance handoff")
 if 'echo "$ELECTRON_PID" > "$APP_PID_FILE"' not in launch_body:
     raise SystemExit("launch_electron must still write APP_PID_FILE for normal cold launches")
+if "pid_is_running_app_instance() {" not in source:
+    raise SystemExit("launcher must recognize already-running AppImage instances across /tmp mount paths")
+running_instance_body = source.split("pid_is_running_app_instance() {", 1)[1].split("find_running_app_pid() {", 1)[0]
+find_running_body = source.split("find_running_app_pid() {", 1)[1].split("discover_running_app_pid() {", 1)[0]
+discover_body = source.split("discover_running_app_pid() {", 1)[1].split("discover_foreign_app_pid() {", 1)[0]
+if 'pid_matches_executable "$pid" "$SCRIPT_DIR/electron"' not in running_instance_body:
+    raise SystemExit("running instance detection must still accept the current install electron path")
+if 'pid_is_foreign_codex_electron "$pid"' not in running_instance_body:
+    raise SystemExit("running instance detection must accept AppImage remount electron paths")
+if 'pid_in_same_launch_instance "$pid"' not in running_instance_body:
+    raise SystemExit("running instance detection must preserve multi-launch instance isolation")
+if 'pid_is_running_app_instance "$pid"' not in find_running_body:
+    raise SystemExit("pid-file warm-start detection must use AppImage-aware running instance detection")
+if 'pid_is_running_app_instance "$pid"' not in discover_body:
+    raise SystemExit("recovery /proc scan must use AppImage-aware running instance detection")
 if "pid_cmdline_arg0_path" not in source:
     raise SystemExit("launcher process discovery must use cmdline arg0 path rather than canonicalizing /proc exe paths")
 if '${arg0%% *}' in arg0_path_body:
@@ -3400,7 +3415,7 @@ if 'clear_stale_pid_file' not in reconcile_body:
 if 'if [ -z "$webview_pid" ] || { ! pid_is_webview_server "$webview_pid" && ! pid_is_stale_webview_server "$webview_pid"; }; then' not in reconcile_body:
     raise SystemExit("reconcile_runtime_state must clear stale launcher webview ownership markers without touching valid orphaned servers")
 discover_body = source.split("discover_running_app_pid() {", 1)[1].split("running_app_is_active() {", 1)[0]
-if 'pid_in_same_launch_instance "$pid"' not in discover_body:
+if 'pid_is_running_app_instance "$pid"' not in discover_body or 'pid_in_same_launch_instance "$pid"' not in running_instance_body:
     raise SystemExit("discover_running_app_pid must filter by launch instance so default and side-by-side apps never adopt each other")
 instance_match_body = source.split("pid_in_same_launch_instance() {", 1)[1].split("discover_running_app_pid() {", 1)[0]
 if 'CODEX_LINUX_INSTANCE_ID=$CODEX_LINUX_INSTANCE_ID' not in instance_match_body or 'CODEX_LINUX_MULTI_LAUNCH=1' not in instance_match_body:
@@ -5010,6 +5025,9 @@ JS
     assert_contains "$extracted/.vite/build/main-test.js" 'e.includes(`--quick-chat`)'
     assert_contains "$extracted/.vite/build/main-test.js" 'e.includes(`--prompt-chat`)'
     assert_contains "$extracted/.vite/build/main-test.js" 'e.includes(`--hotkey-window`)'
+    assert_contains "$extracted/.vite/build/main-test.js" 'e.includes(`--show-window`)'
+    assert_contains "$extracted/.vite/build/main-test.js" 'codexLinuxOpenDefaultWindow'
+    assert_contains "$extracted/.vite/build/main-test.js" 'codexLinuxIsDefaultOpenLaunch'
     assert_contains "$extracted/.vite/build/main-test.js" 'codexLinuxHasDeepLink'
     assert_contains "$extracted/.vite/build/main-test.js" 'codexLinuxShowHotkeyWindow'
     assert_contains "$extracted/.vite/build/main-test.js" 'codexLinuxGetHotkeyWindowController'
@@ -5354,6 +5372,14 @@ async function boot(settings = {}, env = { CODEX_DESKTOP_LAUNCH_ACTION_SOCKET: "
 
   resetCalls();
   state.primaryWindow = state.primary;
+  await runSecondInstance(["codex-desktop", "--show-window"]);
+  assert(state.queueArgs.length === 0, "--show-window without a deeplink should not be consumed by deeplink routing");
+  assert(state.createFreshLocalWindowCalls.length === 0, "--show-window should reuse the warm primary window");
+  assert(state.focusCalls.length === 1 && state.focusCalls[0] === "primary", "--show-window should focus the warm primary window");
+  assert(state.navigateCalls.length === 0, "--show-window should not navigate an existing window");
+
+  resetCalls();
+  state.primaryWindow = state.primary;
   let socket = await runSocketArgs(["codex-desktop", "--prompt-chat"]);
   assert(socket.outputs[0] === "ok\n", "warm-start socket should acknowledge handled prompt args");
   assert(state.openHomeCalls === 1, "warm-start socket should open the compact prompt on the new-chat home surface");
@@ -5366,6 +5392,14 @@ async function boot(settings = {}, env = { CODEX_DESKTOP_LAUNCH_ACTION_SOCKET: "
   assert(socket.outputs[0] === "ok\n", "warm-start socket should acknowledge deeplink args");
   assert(state.queueArgs.length === 1, "warm-start socket should check deeplinks before prompt flags");
   assert(state.openHomeCalls === 0, "warm-start socket should not open the prompt when a deeplink is present");
+
+  resetCalls();
+  state.primaryWindow = state.primary;
+  socket = await runSocketArgs([]);
+  assert(socket.outputs[0] === "ok\n", "warm-start socket should acknowledge empty default-open args");
+  assert(state.ieCalls === 0, "empty default-open args should not need the legacy focus fallback");
+  assert(state.focusCalls.length === 1 && state.focusCalls[0] === "primary", "empty default-open args should focus the warm primary window");
+  assert(state.navigateCalls.length === 0, "empty default-open args should not navigate an existing window");
 
   resetCalls();
   socket = await runSocketArgs(["codex-desktop"]);
@@ -5476,6 +5510,9 @@ NODE
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'e.includes(`--quick-chat`)' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'e.includes(`--prompt-chat`)' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'e.includes(`--hotkey-window`)' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'e.includes(`--show-window`)' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'codexLinuxOpenDefaultWindow=' '1'
+    assert_occurrence_count "$extracted/.vite/build/main-test.js" 'codexLinuxIsDefaultOpenLaunch=' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'codexLinuxShowHotkeyWindow=' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'codexLinuxGetHotkeyWindowController=' '1'
     assert_occurrence_count "$extracted/.vite/build/main-test.js" 'codexLinuxPrewarmHotkeyWindow=' '1'

@@ -1,0 +1,560 @@
+name: Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update, for example v2026.06.30.150000. Defaults to a UTC timestamp tag."
+        required: false
+        type: string
+      package_version:
+        description: "Native package version. Defaults to the tag without the leading v plus the short commit."
+        required: false
+        type: string
+      upstream_dmg_url:
+        description: "Codex Desktop DMG URL to package."
+        required: false
+        default: "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
+        type: string
+      draft:
+        description: "Create the GitHub Release as a draft."
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: "Mark the GitHub Release as a prerelease."
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  UPSTREAM_DMG_PATH: /tmp/codex-upstream-ci/Codex.dmg
+  DMG_CACHE_SCHEMA_VERSION: v1
+
+jobs:
+  metadata:
+    name: Resolve Release Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      package_version: ${{ steps.release.outputs.package_version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_name: ${{ steps.release.outputs.release_name }}
+      upstream_dmg_url: ${{ steps.release.outputs.upstream_dmg_url }}
+      draft: ${{ steps.release.outputs.draft }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PACKAGE_VERSION: ${{ inputs.package_version }}
+          INPUT_UPSTREAM_DMG_URL: ${{ inputs.upstream_dmg_url }}
+          INPUT_DRAFT: ${{ inputs.draft }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            release_tag="${GITHUB_REF_NAME}"
+            draft="false"
+            prerelease="false"
+          else
+            if [ -n "${INPUT_TAG:-}" ]; then
+              release_tag="$INPUT_TAG"
+            else
+              release_tag="v$(date -u '+%Y.%m.%d.%H%M%S')"
+            fi
+            draft="${INPUT_DRAFT:-true}"
+            prerelease="${INPUT_PRERELEASE:-true}"
+          fi
+
+          upstream_dmg_url="${INPUT_UPSTREAM_DMG_URL:-https://persistent.oaistatic.com/codex-app-prod/Codex.dmg}"
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          if [ -n "${INPUT_PACKAGE_VERSION:-}" ]; then
+            package_version="$INPUT_PACKAGE_VERSION"
+          else
+            package_version="${release_tag#v}+${short_sha}"
+          fi
+
+          case "$release_tag" in
+            v*) ;;
+            *) release_tag="v$release_tag" ;;
+          esac
+
+          {
+            echo "release_tag=$release_tag"
+            echo "package_version=$package_version"
+            echo "release_name=Codex Desktop Linux $release_tag"
+            echo "upstream_dmg_url=$upstream_dmg_url"
+            echo "draft=$draft"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Release Metadata"
+            echo ""
+            echo "- Tag: \`$release_tag\`"
+            echo "- Package version: \`$package_version\`"
+            echo "- Upstream DMG URL: \`$upstream_dmg_url\`"
+            echo "- Draft: \`$draft\`"
+            echo "- Prerelease: \`$prerelease\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-app:
+    name: Build Linux App From DMG
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: metadata
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates \
+            curl \
+            g++ \
+            make \
+            p7zip-full \
+            python3 \
+            tar \
+            unzip \
+            zstd
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Capture upstream DMG metadata
+        id: upstream-metadata
+        env:
+          UPSTREAM_DMG_URL: ${{ needs.metadata.outputs.upstream_dmg_url }}
+        run: |
+          set -euo pipefail
+
+          headers_file="$(mktemp)"
+          trap 'rm -f "$headers_file"' EXIT
+
+          curl -fsSLI "$UPSTREAM_DMG_URL" > "$headers_file"
+          last_modified="$(awk 'tolower($0) ~ /^last-modified:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); print; exit}' "$headers_file")"
+          etag="$(awk 'tolower($0) ~ /^etag:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); gsub(/"/,""); print; exit}' "$headers_file")"
+          content_length="$(awk 'tolower($0) ~ /^content-length:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); print; exit}' "$headers_file")"
+
+          last_modified="${last_modified:-unknown}"
+          etag="${etag:-no-etag}"
+          content_length="${content_length:-unknown}"
+          cache_segment="$(printf '%s|%s|%s\n' "$last_modified" "$etag" "$content_length" | sha256sum | cut -d' ' -f1)"
+
+          {
+            echo "last_modified=$last_modified"
+            echo "etag=$etag"
+            echo "content_length=$content_length"
+            echo "cache_segment=$cache_segment"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached upstream DMG
+        id: dmg-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.UPSTREAM_DMG_PATH }}
+          key: upstream-dmg-${{ env.DMG_CACHE_SCHEMA_VERSION }}-${{ steps.upstream-metadata.outputs.cache_segment }}
+
+      - name: Download upstream DMG
+        if: steps.dmg-cache.outputs.cache-hit != 'true'
+        env:
+          UPSTREAM_DMG_URL: ${{ needs.metadata.outputs.upstream_dmg_url }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$UPSTREAM_DMG_PATH")"
+          curl -fL --retry 3 -o "$UPSTREAM_DMG_PATH" "$UPSTREAM_DMG_URL"
+
+      - name: Record upstream DMG fingerprint
+        env:
+          UPSTREAM_DMG_URL: ${{ needs.metadata.outputs.upstream_dmg_url }}
+          CACHE_HIT: ${{ steps.dmg-cache.outputs.cache-hit || 'false' }}
+        run: |
+          set -euo pipefail
+
+          test -s "$UPSTREAM_DMG_PATH"
+          dmg_sha256="$(sha256sum "$UPSTREAM_DMG_PATH" | cut -d' ' -f1)"
+          dmg_size_bytes="$(stat -c '%s' "$UPSTREAM_DMG_PATH")"
+          tested_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          cat > upstream-dmg-metadata.json <<JSON
+          {
+            "url": "$UPSTREAM_DMG_URL",
+            "path": "$UPSTREAM_DMG_PATH",
+            "last_modified": "${{ steps.upstream-metadata.outputs.last_modified }}",
+            "etag": "${{ steps.upstream-metadata.outputs.etag }}",
+            "content_length": "${{ steps.upstream-metadata.outputs.content_length }}",
+            "sha256": "$dmg_sha256",
+            "size_bytes": $dmg_size_bytes,
+            "tested_at_utc": "$tested_at_utc",
+            "cache_hit": "$CACHE_HIT"
+          }
+          JSON
+
+      - name: Build app
+        env:
+          CODEX_PATCH_REPORT_JSON: ${{ github.workspace }}/patch-report.json
+        run: ./install.sh "$UPSTREAM_DMG_PATH"
+
+      - name: Validate required patches
+        run: node scripts/ci/validate-patch-report.js patch-report.json --profile upstream-build
+
+      - name: Stage build metadata
+        run: |
+          set -euo pipefail
+          mkdir -p release-metadata
+          cp upstream-dmg-metadata.json release-metadata/
+          cp patch-report.json release-metadata/
+          cp codex-app/.codex-linux/build-info.json release-metadata/
+          cp codex-app/.codex-linux/patch-report.json release-metadata/installed-patch-report.json
+
+      - name: Archive generated app for package jobs
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          tar -I 'zstd -T0 -19' -cf "codex-app-${PACKAGE_VERSION}-x86_64.tar.zst" codex-app release-metadata
+
+      - name: Upload generated app
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-app-build
+          path: codex-app-${{ needs.metadata.outputs.package_version }}-x86_64.tar.zst
+          retention-days: 7
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: release-metadata/*
+
+  package-appimage:
+    name: Build AppImage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs:
+      - metadata
+      - build-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install AppImage tooling
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl file zstd
+          mkdir -p "$HOME/.local/bin"
+          curl -fL --retry 3 \
+            -o "$HOME/.local/bin/appimagetool" \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod 0755 "$HOME/.local/bin/appimagetool"
+
+      - name: Download generated app
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-app-build
+
+      - name: Extract generated app
+        run: tar -I zstd -xf codex-app-${{ needs.metadata.outputs.package_version }}-x86_64.tar.zst
+
+      - name: Build AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          APPIMAGETOOL="$HOME/.local/bin/appimagetool" ./scripts/build-appimage.sh
+          appimage_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.AppImage' -print -quit)"
+          test -n "$appimage_file"
+          sha256sum "$appimage_file" > "$appimage_file.sha256"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-appimage
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+
+  package-deb:
+    name: Build Debian Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs:
+      - metadata
+      - build-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install package dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ make zstd
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Download generated app
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-app-build
+
+      - name: Extract generated app
+        run: tar -I zstd -xf codex-app-${{ needs.metadata.outputs.package_version }}-x86_64.tar.zst
+
+      - name: Build Debian package
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+          MAX_BUILD_THREADS: "4"
+        run: |
+          set -euo pipefail
+          cargo build --release -p codex-update-manager
+          ./scripts/build-deb.sh
+          deb_file="$(find dist -maxdepth 1 -name 'codex-desktop_*.deb' -print -quit)"
+          test -n "$deb_file"
+          dpkg-deb -I "$deb_file"
+          dpkg-deb -c "$deb_file" | tee /tmp/deb-contents.txt >/dev/null
+          grep -q './usr/bin/codex-update-manager' /tmp/deb-contents.txt
+          grep -q './opt/codex-desktop/update-builder/install.sh' /tmp/deb-contents.txt
+          sha256sum "$deb_file" > "$deb_file.sha256"
+
+      - name: Upload Debian artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-deb
+          path: |
+            dist/*.deb
+            dist/*.deb.sha256
+
+  package-rpm:
+    name: Build RPM Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs:
+      - metadata
+      - build-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install package dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ make rpm zstd
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Download generated app
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-app-build
+
+      - name: Extract generated app
+        run: tar -I zstd -xf codex-app-${{ needs.metadata.outputs.package_version }}-x86_64.tar.zst
+
+      - name: Build RPM package
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+          MAX_BUILD_THREADS: "4"
+        run: |
+          set -euo pipefail
+          cargo build --release -p codex-update-manager
+          ./scripts/build-rpm.sh
+          rpm_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.rpm' -print -quit)"
+          test -n "$rpm_file"
+          rpm -qip "$rpm_file"
+          rpm -qlp "$rpm_file" | tee /tmp/rpm-contents.txt >/dev/null
+          grep -q '/usr/bin/codex-update-manager' /tmp/rpm-contents.txt
+          grep -q '/opt/codex-desktop/update-builder/install.sh' /tmp/rpm-contents.txt
+          sha256sum "$rpm_file" > "$rpm_file.sha256"
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-rpm
+          path: |
+            dist/*.rpm
+            dist/*.rpm.sha256
+
+  package-pacman:
+    name: Build Pacman Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs:
+      - metadata
+      - build-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install extraction dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zstd
+
+      - name: Download generated app
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-app-build
+
+      - name: Extract generated app
+        run: tar -I zstd -xf codex-app-${{ needs.metadata.outputs.package_version }}-x86_64.tar.zst
+
+      - name: Build pacman package in Arch Linux
+        env:
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e PACKAGE_VERSION="$PACKAGE_VERSION" \
+            -e CARGO_TERM_COLOR=always \
+            -v "$PWD:/work" \
+            -w /work \
+            archlinux:base-devel \
+            bash -lc '
+              set -euo pipefail
+              pacman -Syu --noconfirm --needed rust nodejs npm zstd sudo
+              useradd -m builder
+              chown -R builder:builder /work
+              runuser -u builder -- bash -lc '"'"'
+                set -euo pipefail
+                cd /work
+                cargo build --release -p codex-update-manager
+                PACKAGE_VERSION="$PACKAGE_VERSION" MAX_BUILD_THREADS=4 ./scripts/build-pacman.sh
+                pkg_file="$(find dist -maxdepth 1 -name "codex-desktop-*.pkg.tar.*" ! -name "*latest*" -print -quit)"
+                test -n "$pkg_file"
+                pacman -Qip "$pkg_file"
+                pacman -Qlp "$pkg_file" | tee /tmp/pacman-contents.txt >/dev/null
+                grep -q "usr/bin/codex-update-manager" /tmp/pacman-contents.txt
+                grep -q "opt/codex-desktop/update-builder/install.sh" /tmp/pacman-contents.txt
+                sha256sum "$pkg_file" > "$pkg_file.sha256"
+                rm -f dist/codex-desktop-latest.pkg.tar.zst
+              '"'"'
+            '
+
+      - name: Upload pacman artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-pacman
+          path: |
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.xz
+            dist/*.pkg.tar.zst.sha256
+            dist/*.pkg.tar.xz.sha256
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - metadata
+      - build-app
+      - package-appimage
+      - package-deb
+      - package-rpm
+      - package-pacman
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate release notes
+        env:
+          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          PACKAGE_VERSION: ${{ needs.metadata.outputs.package_version }}
+          UPSTREAM_DMG_URL: ${{ needs.metadata.outputs.upstream_dmg_url }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Codex Desktop Linux release built from upstream Codex Desktop."
+            echo ""
+            echo "## Build Inputs"
+            echo ""
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Package version: \`$PACKAGE_VERSION\`"
+            echo "- Upstream DMG: \`$UPSTREAM_DMG_URL\`"
+            if [ -f release-assets/upstream-dmg-metadata.json ]; then
+              echo "- Upstream DMG SHA-256: \`$(node -e 'const fs=require("fs"); const j=JSON.parse(fs.readFileSync("release-assets/upstream-dmg-metadata.json","utf8")); console.log(j.sha256)')\`"
+            fi
+            echo ""
+            echo "## Artifacts"
+            echo ""
+            find release-assets -maxdepth 1 -type f \
+              ! -name '*.sha256' \
+              \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.*' \) \
+              -printf '- `%f`\n' | sort
+            echo ""
+            echo "Checksums are uploaded next to each package as \`.sha256\` files."
+          } > release-notes.md
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.metadata.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.metadata.outputs.release_name }}
+          RELEASE_DRAFT: ${{ needs.metadata.outputs.draft }}
+          RELEASE_PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(find release-assets -maxdepth 1 -type f | sort)
+          test "${#files[@]}" -gt 0
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md \
+              --draft="$RELEASE_DRAFT" \
+              --prerelease="$RELEASE_PRERELEASE"
+            gh release upload "$RELEASE_TAG" "${files[@]}" --clobber
+          else
+            flags=(--title "$RELEASE_NAME" --notes-file release-notes.md --target "$GITHUB_SHA")
+            if [ "$RELEASE_DRAFT" = "true" ]; then
+              flags+=(--draft)
+            fi
+            if [ "$RELEASE_PRERELEASE" = "true" ]; then
+              flags+=(--prerelease)
+            fi
+            gh release create "$RELEASE_TAG" "${files[@]}" "${flags[@]}"
+          fi
+
+          {
+            echo "## GitHub Release"
+            echo ""
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- URL: $(gh release view "$RELEASE_TAG" --json url --jq .url)"
+            echo "- Uploaded files: ${#files[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
