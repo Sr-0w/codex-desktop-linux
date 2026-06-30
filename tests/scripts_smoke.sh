@@ -2590,6 +2590,91 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'Release asset filenames are intentionally short'
 }
 
+test_public_readme_claims_match_release_contract() {
+    info "Checking public README claims against release/build contract"
+    local readme="$REPO_DIR/README.md"
+    local release_workflow="$REPO_DIR/.github/workflows/release-artifacts.yml"
+    local release_doc="$REPO_DIR/.github/RELEASE.md"
+    local package_common="$REPO_DIR/scripts/lib/package-common.sh"
+    local bundled_plugins="$REPO_DIR/scripts/lib/bundled-plugins.sh"
+    local node_runtime="$REPO_DIR/scripts/lib/node-runtime.sh"
+
+    assert_file_exists "$readme"
+    assert_file_exists "$release_workflow"
+    assert_file_exists "$release_doc"
+
+    for artifact in \
+        codex-desktop-linux-amd64.deb \
+        codex-desktop-linux-x86_64.rpm \
+        codex-desktop-linux-x86_64.pkg.tar.zst \
+        codex-desktop-linux-x86_64.AppImage
+    do
+        assert_contains "$readme" "$artifact"
+        assert_contains "$release_workflow" "$artifact"
+        assert_contains "$release_doc" "$artifact"
+    done
+
+    for doc in \
+        docs/BUILD.md \
+        docs/build-and-packaging.md \
+        docs/troubleshooting.md \
+        docs/linux-computer-use.md \
+        docs/native-setup.md \
+        docs/nix.md \
+        docs/updater.md \
+        docs/linux-features-architecture.md \
+        docs/architecture.md \
+        CONTRIBUTING.md
+    do
+        assert_file_exists "$REPO_DIR/$doc"
+        assert_contains "$readme" "$doc"
+    done
+
+    assert_file_exists "$REPO_DIR/LICENSE"
+    assert_contains "$readme" "The wrapper source code in this repository is MIT licensed."
+    assert_contains "$REPO_DIR/LICENSE" "MIT License"
+
+    assert_contains "$readme" "Native packages include \`codex-update-manager\`"
+    assert_contains "$package_common" 'PACKAGE_WITH_UPDATER:-1'
+    assert_contains "$package_common" 'cp "$UPDATER_BINARY_SOURCE" "$root/usr/bin/codex-update-manager"'
+    assert_contains "$package_common" 'local update_builder_root="$root/opt/$PACKAGE_NAME/update-builder"'
+    assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "/usr/bin/codex-desktop"
+    assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "codex-update-manager check-now"
+
+    assert_contains "$readme" "managed Linux Node.js runtime"
+    assert_contains "$node_runtime" "download_managed_node_runtime"
+    assert_contains "$REPO_DIR/install.sh" 'ensure_managed_node_runtime "$INSTALL_DIR/resources/node-runtime"'
+    assert_contains "$package_common" 'local node_runtime_source="$APP_DIR/resources/node-runtime"'
+
+    assert_contains "$readme" "Browser Use availability on Linux"
+    assert_file_exists "$REPO_DIR/scripts/patches/core/all-linux/webview/browser-use-availability/patch.js"
+    assert_contains "$bundled_plugins" "stage_browser_plugin_from_upstream"
+    assert_contains "$bundled_plugins" "install_browser_use_node_repl_resource"
+
+    assert_contains "$readme" "Chrome, Chromium, Brave, and related native-host support"
+    assert_contains "$bundled_plugins" "stage_chrome_plugin_from_upstream"
+    assert_contains "$REPO_DIR/scripts/patches/main-process/browser.js" "BraveSoftware"
+    assert_contains "$REPO_DIR/scripts/patches/main-process/browser.js" "google-chrome"
+    assert_contains "$REPO_DIR/scripts/patches/main-process/browser.js" "chromium"
+
+    assert_contains "$readme" "Linux Computer Use backend registration"
+    assert_file_exists "$REPO_DIR/plugins/openai-bundled/plugins/computer-use/.codex-plugin/plugin.json"
+    assert_file_exists "$REPO_DIR/plugins/openai-bundled/plugins/computer-use/.mcp.json"
+    assert_contains "$bundled_plugins" "stage_linux_computer_use_plugin"
+    assert_contains "$bundled_plugins" "codex-computer-use-linux"
+
+    assert_file_exists "$REPO_DIR/scripts/patches/core/all-linux/main-process/launch-actions/patch.js"
+    assert_file_exists "$REPO_DIR/scripts/patches/core/all-linux/main-process/window-shell/patch.js"
+    assert_file_exists "$REPO_DIR/scripts/patches/core/all-linux/main-process/xdg-documents/patch.js"
+    assert_file_exists "$REPO_DIR/scripts/patches/core/all-linux/main-process/lifecycle/patch.js"
+
+    local feature_manifest
+    while IFS= read -r -d '' feature_manifest; do
+        assert_file_exists "$(dirname "$feature_manifest")/README.md"
+    done < <(find "$REPO_DIR/linux-features" -path "$REPO_DIR/linux-features/local" -prune -o -name feature.json -print0)
+    assert_contains "$REPO_DIR/linux-features/features.example.json" '"enabled": \[\]'
+}
+
 test_installer_detects_electron_version_from_plist() {
     info "Checking Electron version detection from app metadata"
     local workspace="$TMP_DIR/electron-version"
@@ -6554,6 +6639,7 @@ main() {
     test_setup_native_wizard_cleanup_deletes_only_confirmed_paths
     test_upstream_build_app_workflow_tracks_dmg_metadata
     test_release_artifacts_workflow_uses_short_asset_names
+    test_public_readme_claims_match_release_contract
     test_installer_detects_electron_version_from_plist
     test_installer_keeps_electron_fallback_for_bad_metadata
     test_port_validation_rejects_oversized_numeric_values
