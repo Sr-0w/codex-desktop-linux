@@ -1169,10 +1169,15 @@ SCRIPT
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "Exec=AppRun %u"
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "Icon=codex-desktop"
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "X-AppImage-Version=2026.03.24.120000+appimage"
-    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "Actions=new-window;"
+    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "Actions=new-window;CheckForUpdates;"
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "[Desktop Action new-window]"
+    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "[Desktop Action CheckForUpdates]"
+    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "https://github.com/Sr-0w/codex-desktop-linux/releases/latest"
     assert_not_contains "$capture_dir/AppDir/codex-desktop.desktop" "codex-update-manager"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CHROME_DESKTOP="codex-desktop.desktop"'
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CODEX_APPIMAGE_CURRENT_VERSION="2026.03.24.120000+appimage"'
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_update_check_background"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "api.github.com/repos/Sr-0w/codex-desktop-linux/releases/latest"
     assert_not_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "/usr/share/applications"
     [ "$(cat "$capture_dir/arch")" = "$arch" ] || fail "Expected appimagetool ARCH=$arch"
     [ "$(cat "$capture_dir/version")" = "2026.03.24.120000+appimage" ] || fail "Expected appimagetool VERSION override"
@@ -2640,6 +2645,9 @@ test_public_readme_claims_match_release_contract() {
     assert_contains "$package_common" 'local update_builder_root="$root/opt/$PACKAGE_NAME/update-builder"'
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "/usr/bin/codex-desktop"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "codex-update-manager check-now"
+    assert_contains "$readme" "AppImage builds are portable, check GitHub Releases on launch"
+    assert_contains "$REPO_DIR/packaging/appimage/codex-appimage-runtime.sh" "codex_appimage_update_check_background"
+    assert_contains "$REPO_DIR/docs/updater.md" "AppImages do not bundle \`codex-update-manager\`"
 
     assert_contains "$readme" "managed Linux Node.js runtime"
     assert_contains "$node_runtime" "download_managed_node_runtime"
@@ -3836,6 +3844,20 @@ EOF
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "is-enabled codex-update-manager.service"
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "codex-update-manager-launch-check"
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "codex-update-manager check-now --if-stale"
+    python3 - "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" <<'PY'
+import sys
+
+source = open(sys.argv[1], encoding="utf-8").read()
+body = source.split("codex_packaged_runtime_prelaunch_background() {", 1)[1].split("codex_packaged_runtime_trigger_update_check() {", 1)[0]
+required_fallbacks = [
+    'if ! command -v systemctl >/dev/null 2>&1; then\n        codex_packaged_runtime_trigger_update_check\n        return 0\n    fi',
+    'if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then\n        codex_packaged_runtime_trigger_update_check\n        return 0\n    fi',
+    'if ! systemctl --user show-environment >/dev/null 2>&1; then\n        codex_packaged_runtime_trigger_update_check\n        return 0\n    fi',
+]
+for fallback in required_fallbacks:
+    if fallback not in body:
+        raise SystemExit("packaged runtime must run updater check directly when systemd user service startup is unavailable")
+PY
     assert_not_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "enable --now codex-update-manager.service"
     assert_not_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "restart codex-update-manager.service"
     assert_contains "$REPO_DIR/packaging/linux/codex-update-manager-user-service.sh" "codex_start_enabled_user_service"

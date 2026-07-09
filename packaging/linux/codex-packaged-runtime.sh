@@ -6,14 +6,17 @@ codex_packaged_runtime_prelaunch() {
 
 codex_packaged_runtime_prelaunch_background() {
     if ! command -v systemctl >/dev/null 2>&1; then
+        codex_packaged_runtime_trigger_update_check
         return 0
     fi
 
     if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
+        codex_packaged_runtime_trigger_update_check
         return 0
     fi
 
     if ! systemctl --user show-environment >/dev/null 2>&1; then
+        codex_packaged_runtime_trigger_update_check
         return 0
     fi
 

@@ -3,6 +3,9 @@
 Default native packages install `codex-update-manager`, a companion
 `systemd --user` service.
 
+On non-systemd desktops, native package launches fall back to running
+`codex-update-manager check-now --if-stale` directly in the background.
+
 It:
 
 - checks upstream `Codex.dmg` on daemon startup, every 6 hours, and in the
@@ -134,3 +137,10 @@ in `~/.config/codex-update-manager/config.toml`.
 This is intended for git-checkout/dev update-builder installs. Frozen
 native-package builders without a `.git` directory report no wrapper candidate
 and receive wrapper changes through normal package upgrades.
+
+## AppImage Updates
+
+AppImages do not bundle `codex-update-manager` or install packages in place.
+Instead, the AppImage runtime checks this repository's latest GitHub Release on
+launch, throttled to every 6 hours, and prompts once per newer release to open
+the AppImage download page.

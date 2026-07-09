@@ -36,8 +36,8 @@ Download the latest package from
 | Other Linux distros | `codex-desktop-linux-x86_64.AppImage` | `chmod +x ./codex-desktop-linux-x86_64.AppImage && ./codex-desktop-linux-x86_64.AppImage` |
 
 Native packages install the app as `codex-desktop` and include the local update
-manager. AppImage builds are portable and update manually by downloading a newer
-release.
+manager. AppImage builds are portable, check GitHub Releases on launch, and
+update manually by downloading a newer AppImage.
 
 ## After Install
 
@@ -57,8 +57,9 @@ to run the desktop app.
 ## Updates
 
 Native packages include `codex-update-manager`, which can rebuild and install a
-new local package when upstream Codex Desktop updates. AppImage users should
-download the newest AppImage from Releases.
+new local package when upstream Codex Desktop updates. AppImage users get a
+release notification when a newer AppImage is published, then update by
+downloading the newest AppImage from Releases.
 
 See [Updater](docs/updater.md) for update-manager details and rollback notes.
 
