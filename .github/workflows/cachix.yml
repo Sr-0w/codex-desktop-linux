@@ -29,6 +29,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free runner disk space for Nix builds
+        run: |
+          set -euo pipefail
+          echo "Disk usage before cleanup:"
+          df -h
+
+          sudo rm -rf \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/share/swift
+          sudo docker system prune -af --volumes || true
+          sudo apt-get clean
+
+          echo "Disk usage after cleanup:"
+          df -h
+
       - uses: cachix/install-nix-action@v31
 
       - name: Configure Cachix for push
