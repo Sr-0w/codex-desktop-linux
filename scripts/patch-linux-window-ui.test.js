@@ -2094,6 +2094,39 @@ test("redirects the renamed Linux-aware titlebar overlay sync away from the tran
   assert.deepEqual(warnings, []);
 });
 
+test("uses the Linux native titlebar when upstream groups quickChat and primary", () => {
+  const source = [
+    "function I9(e){return e===`avatarOverlay`}",
+    "function L9({platform:e,appearance:t,opaqueWindowSurfaceEnabled:n,prefersDarkColors:r}){return n?{backgroundColor:r?_ne:vne,backgroundMaterial:e===`win32`?`none`:null}:e===`linux`&&!I9(t)?{backgroundColor:r?_ne:vne,backgroundMaterial:null}:e===`win32`&&!I9(t)?{backgroundColor:k9,backgroundMaterial:`mica`}:{backgroundColor:k9,backgroundMaterial:null}}",
+    "function A9(e){return{x:Dne,y:Math.round((Tne*e-Ene)/2)}}function j9(e=1){return{color:k9,symbolColor:c.nativeTheme.shouldUseDarkColors?Ane:kne,height:Math.round(One*e)}}",
+    "case`quickChat`:case`primary`:return n===`darwin`?{titleBarStyle:`hiddenInset`,trafficLightPosition:A9(r),...e===`quickChat`?{hasShadow:!0,resizable:!0,transparent:!0}:{},...t?{}:{vibrancy:`menu`}}:n===`win32`||n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:j9(r),...e===`quickChat`?{resizable:!0}:{}}:{titleBarStyle:`default`,...e===`quickChat`?{resizable:!0}:{}};",
+    "installApplicationMenuTitleBarOverlaySync(e,t){if(process.platform!==`win32`&&process.platform!==`linux`||t!==`primary`&&t!==`quickChat`)return;let n=()=>{e.isDestroyed()||e.setTitleBarOverlay(j9(this.windowZooms.get(e.id)))};return c.nativeTheme.on(`updated`,n),n(),()=>{c.nativeTheme.off(`updated`,n)}}",
+    "process.platform===`darwin`?n.setWindowButtonPosition(A9(t)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(n.id,t),n.setTitleBarOverlay(j9(t)))",
+  ].join("");
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxNativeTitlebarPatch, source),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(
+    patched,
+    /case`quickChat`:case`primary`:return n===`darwin`\?\{titleBarStyle:`hiddenInset`,trafficLightPosition:A9\(r\),\.\.\.e===`quickChat`\?\{hasShadow:!0,resizable:!0,transparent:!0\}:\{\},\.\.\.t\?\{\}:\{vibrancy:`menu`\}\}:n===`win32`\?\{titleBarStyle:`hidden`,titleBarOverlay:j9\(r\),\.\.\.e===`quickChat`\?\{resizable:!0\}:\{\}\}:n===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:codexLinuxTitleBarOverlay\(r\),\.\.\.e===`quickChat`\?\{resizable:!0\}:\{\}\}/,
+  );
+  assert.match(
+    patched,
+    /if\(\(process\.platform!==`win32`&&process\.platform!==`linux`\)\|\|t!==`primary`&&t!==`quickChat`\)return/,
+  );
+  assert.match(
+    patched,
+    /e\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(this\.windowZooms\.get\(e\.id\)\):j9\(this\.windowZooms\.get\(e\.id\)\)\)/,
+  );
+  assert.match(
+    patched,
+    /n\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(t\):j9\(t\)\)/,
+  );
+});
+
 
 test("updates every Linux zoom titlebar overlay refresh call site", () => {
   const source = [
@@ -2714,6 +2747,25 @@ test("keeps avatar overlay interactivity working after native presentation drift
   assert.match(patched, /this\.cancelMomentum\(\),this\.clearMovedWindowPersist\(\),this\.window=null/);
 });
 
+test("keeps avatar overlay passthrough patching when Computer Use cursor methods are interleaved", () => {
+  const source = currentAvatarOverlayBundleFixture().replace(
+    "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}refreshCursorAtCurrentMousePosition(e){let t=a.screen.getCursorScreenPoint()}",
+    "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}setComputerUseCursorLocation(e){this.computerUseCursorLocation=e}sendComputerUseCursorLocationToRenderer(e){return e}refreshCursorAtCurrentMousePosition(e){let t=a.screen.getCursorScreenPoint()}",
+  );
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxAvatarOverlayMousePassthroughPatch, source),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(patched, /codexLinuxSyncAvatarPointerInteractivity\(e\)/);
+  assert.match(
+    patched,
+    /codexLinuxIsCursorInAvatarInteractiveRegion\(e\)\{[\s\S]*?\}setComputerUseCursorLocation\(e\)\{this\.computerUseCursorLocation=e\}/,
+  );
+  assert.match(patched, /refreshCursorAtCurrentMousePosition\(e\)\{let t=a\.screen\.getCursorScreenPoint\(\)\}/);
+});
+
 test("scopes avatar overlay method matching away from unrelated earlier classes", () => {
   const unrelatedClass =
     "var Unrelated=class{startDrag(e){this.dragState=null}endDrag(e){this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0})}showWindow(e){e.moveTop(),e.showInactive(),this.broadcastOpenState()}};";
@@ -2882,6 +2934,25 @@ test("keeps focusable destructuring valid while patching current boolean minifie
   );
 });
 
+test("forces Linux primary BrowserWindow to be focusable for void spread current shape", () => {
+  const source = [
+    "async createWindow(e={}){let{title:t,width:r=1280,height:i=820,appearance:o=`primary`,",
+    "show:s=!0,parent:f,focusable:m}=e,D=z9({appearance:o,platform:process.platform}),",
+    "M=new c.BrowserWindow({width:b,height:x,title:t??c.app.getName(),backgroundColor:A,",
+    "show:s,parent:f,...m===void 0?{}:{focusable:m},",
+    "...process.platform===`win32`||process.platform===`linux`?{autoHideMenuBar:!0}:{},",
+    "backgroundMaterial:j??void 0,...D,minWidth:T?.width,minHeight:T?.height,webPreferences:k});}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxWindowOptionsPatch, source, null);
+
+  assert.match(
+    patched,
+    /\.\.\.process\.platform===`linux`&&o===`primary`\?\{focusable:!0\}:m==null\?\{\}:\{focusable:m\},\.\.\.process\.platform===`win32`\|\|process\.platform===`linux`\?/,
+  );
+  assert.doesNotMatch(patched, /\.\.\.m===void 0\?\{\}:\{focusable:m\},\.\.\.process\.platform===`win32`/);
+});
+
 test("fails loudly when primary BrowserWindow focusable shape cannot be patched", () => {
   const source = [
     "async createWindow(e={}){let{appearance:c=`primary`}=e,",
@@ -3031,6 +3102,27 @@ test("adds Linux tray icon fallback when current upstream uses small file icon f
   assert.deepEqual(warnings, []);
   assert.match(patched, /__codexLinuxTrayIcon=n\.nativeImage\.createFromPath/);
   assert.match(patched, /n\.app\.getFileIcon\(process\.execPath,\{size:`small`\}\)/);
+});
+
+test("adds Linux tray icon fallback when upstream splits icon lookup into a helper", () => {
+  const iconPathExpression = "process.resourcesPath+`/../content/webview/assets/app-test.png`";
+  const source = [
+    "let c=require(`electron`),u=require(`node:path`);",
+    "async function sre(e,t,n){if(process.platform===`darwin`)return null;let r=K9(e,t,n);return r==null?{defaultIcon:await c.app.getFileIcon(process.execPath,{size:`small`}),chronicleRunningIcon:null}:{defaultIcon:r,chronicleRunningIcon:null}}",
+    "function K9(e,t,n){let r=x_(e,t),i=c.nativeTheme.shouldUseDarkColorsForSystemIntegratedUI?r.dark:r.light,a=[...c.app.isPackaged?[(0,u.join)(process.resourcesPath,i)]:[],(0,u.join)(n,`electron`,`src`,`icons`,i)];for(let e of a){let t=c.nativeImage.createFromPath(e);if(!t.isEmpty())return t}return null}",
+  ].join("");
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxTrayPatch, source, iconPathExpression),
+  );
+
+  assert.deepEqual(warnings.filter((warning) => warning.includes("tray icon fallback")), []);
+  assert.match(patched, /if\(process\.platform===`linux`&&r==null\)\{let __codexLinuxTrayIcon=c\.nativeImage\.createFromPath/);
+  assert.match(
+    patched,
+    /let __codexLinuxUpstreamTrayIcon=c\.nativeImage\.createFromPath\(process\.resourcesPath\+`\/\.\.\/content\/webview\/assets\/app-test\.png`\)/,
+  );
+  assert.match(patched, /return r==null\?\{defaultIcon:await c\.app\.getFileIcon\(process\.execPath,\{size:`small`\}\),chronicleRunningIcon:null\}:\{defaultIcon:r,chronicleRunningIcon:null\}/);
 });
 
 test("adds Linux tray support even when About dialog already uses the bundled icon path", () => {
