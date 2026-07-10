@@ -19,4 +19,4 @@ Exec=env CHROME_DESKTOP=codex-desktop.desktop CODEX_MULTI_LAUNCH=1 AppRun --new-
 
 [Desktop Action CheckForUpdates]
 Name=Check for Updates
-Exec=xdg-open https://github.com/Sr-0w/codex-desktop-linux/releases/latest
+Exec=env CODEX_APPIMAGE_FORCE_UPDATE_CHECK=1 AppRun --show-window

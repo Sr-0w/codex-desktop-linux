@@ -1172,11 +1172,13 @@ SCRIPT
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "Actions=new-window;CheckForUpdates;"
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "[Desktop Action new-window]"
     assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "[Desktop Action CheckForUpdates]"
-    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "https://github.com/Sr-0w/codex-desktop-linux/releases/latest"
+    assert_contains "$capture_dir/AppDir/codex-desktop.desktop" "CODEX_APPIMAGE_FORCE_UPDATE_CHECK=1 AppRun --show-window"
     assert_not_contains "$capture_dir/AppDir/codex-desktop.desktop" "codex-update-manager"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CHROME_DESKTOP="codex-desktop.desktop"'
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CODEX_APPIMAGE_CURRENT_VERSION="2026.03.24.120000+appimage"'
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_update_check_background"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_install_release_update"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "CODEX_APPIMAGE_UPDATE_ASSUME_YES"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "api.github.com/repos/Sr-0w/codex-desktop-linux/releases/latest"
     assert_not_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "/usr/share/applications"
     [ "$(cat "$capture_dir/arch")" = "$arch" ] || fail "Expected appimagetool ARCH=$arch"

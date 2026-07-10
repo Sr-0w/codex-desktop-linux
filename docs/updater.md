@@ -142,5 +142,7 @@ and receive wrapper changes through normal package upgrades.
 
 AppImages do not bundle `codex-update-manager` or install packages in place.
 Instead, the AppImage runtime checks this repository's latest GitHub Release on
-launch, throttled to every 6 hours, and prompts once per newer release to open
-the AppImage download page.
+launch, throttled to every 6 hours, and prompts once per newer release to
+download, verify, and replace the current AppImage. The replacement is used on
+the next launch, and the previous AppImage is kept as a timestamped backup next
+to the installed file.

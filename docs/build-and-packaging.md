@@ -137,8 +137,9 @@ make appimage
 
 The AppImage flow does not include `codex-update-manager`, the systemd user
 service, polkit policy, or the native-package update builder. The AppImage
-runtime only checks GitHub Releases and prompts the user to download a newer
-AppImage manually.
+runtime checks GitHub Releases and prompts the user to download and install a
+newer AppImage after confirmation. The previous AppImage is kept as a
+timestamped backup next to the installed file.
 
 When upstream Codex Desktop changes:
 
