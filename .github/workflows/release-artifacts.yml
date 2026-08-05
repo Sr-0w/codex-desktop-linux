@@ -664,7 +664,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             binutils \
-            docker.io \
             file \
             g++ \
             libasound2t64 \
@@ -679,6 +678,7 @@ jobs:
             patchelf \
             pax-utils \
             zstd
+          docker version
           rustup toolchain install stable --profile minimal \
             --target aarch64-unknown-linux-musl
           rustup default stable
