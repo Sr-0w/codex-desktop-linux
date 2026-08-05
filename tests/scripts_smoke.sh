@@ -1035,6 +1035,7 @@ test_pacman_builder_without_updater_transition_hook() {
 set -euo pipefail
 cp PKGBUILD "$CAPTURE_DIR/PKGBUILD"
 cp codex-desktop.install "$CAPTURE_DIR/codex-desktop.install"
+printf '%s\n' "$*" > "$CAPTURE_DIR/makepkg-args"
 printf '%s\n' "${MAKEPKG_CONF:-}" > "$CAPTURE_DIR/makepkg-conf-path"
 if [ -n "${MAKEPKG_CONF:-}" ]; then
     cp "$MAKEPKG_CONF" "$CAPTURE_DIR/makepkg.conf"
@@ -1075,6 +1076,8 @@ SCRIPT
     assert_file_exists "$capture_dir/PKGBUILD"
     assert_file_exists "$capture_dir/codex-desktop.install"
     assert_file_exists "$capture_dir/makepkg.conf"
+    assert_contains "$capture_dir/makepkg-args" "--config"
+    assert_contains "$capture_dir/makepkg-args" "makepkg.conf -f --nodeps --skipinteg"
     assert_contains "$capture_dir/makepkg.conf" "PKGDEST=$dist_dir"
     assert_contains "$capture_dir/makepkg.conf" "MAKEFLAGS=\"\${MAKEFLAGS:+\$MAKEFLAGS }-j5\""
     [ "$(cat "$capture_dir/makepkg-evaluated-makeflags")" = "-j12 -j5" ] \

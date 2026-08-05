@@ -166,7 +166,7 @@ main() {
 	# Build the package; --nodeps skips dependency checks at build time (they
 	# are enforced by pacman at install time), and --skipinteg is needed
 	# because we have no remote sources to verify.
-	(cd "$build_root" && env "${makepkg_env[@]}" makepkg -f --nodeps --skipinteg 2>&1) >&2
+	(cd "$build_root" && env "${makepkg_env[@]}" makepkg --config "$makepkg_config" -f --nodeps --skipinteg 2>&1) >&2
 
 	local pkg_file=""
 	pkg_file="$(find "$DIST_DIR" \( -name "${PACKAGE_NAME}-${PACMAN_PKGVER}-*.pkg.tar.zst" \
