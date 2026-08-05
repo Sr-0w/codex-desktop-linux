@@ -524,11 +524,11 @@ jobs:
           MAX_BUILD_THREADS=4 ./scripts/build-pacman.sh
           pkg_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.pkg.tar.*' ! -name '*latest*' -print -quit)"
           test -n "$pkg_file"
-          pacman -Qip "$pkg_file"
-          pacman -Qlp "$pkg_file" | tee /tmp/pacman-contents.txt >/dev/null
+          bsdtar -xOf "$pkg_file" .PKGINFO | tee /tmp/pacman-info.txt
+          bsdtar -tf "$pkg_file" | tee /tmp/pacman-contents.txt >/dev/null
           grep -q "usr/bin/codex-update-manager" /tmp/pacman-contents.txt
           grep -q "opt/codex-desktop/update-builder/install.sh" /tmp/pacman-contents.txt
-          package_arch="$(bsdtar -xOf "$pkg_file" .PKGINFO | awk -F ' = ' '$1 == "arch" { print $2; exit }')"
+          package_arch="$(awk -F ' = ' '$1 == "arch" { print $2; exit }' /tmp/pacman-info.txt)"
           test "$package_arch" = "${{ matrix.pacman_arch }}"
           mkdir -p release-assets
           cp "$pkg_file" "release-assets/codex-desktop-linux-${{ matrix.pacman_arch }}.pkg.tar.zst"

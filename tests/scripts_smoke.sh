@@ -2741,6 +2741,9 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.pacman_arch }}.pkg.tar.zst'
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.gentoo_arch }}.gentoo.tar.zst'
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.release_arch }}.AppImage'
+    assert_contains "$workflow" 'bsdtar -xOf "$pkg_file" .PKGINFO'
+    assert_contains "$workflow" 'bsdtar -tf "$pkg_file"'
+    assert_not_contains "$workflow" 'pacman -Qip'
     assert_contains "$workflow" 'path: release-assets'
     assert_contains "$workflow" 'Release asset filenames are intentionally short'
 }
