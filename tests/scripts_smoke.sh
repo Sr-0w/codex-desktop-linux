@@ -1075,6 +1075,7 @@ SCRIPT
     assert_file_exists "$capture_dir/PKGBUILD"
     assert_file_exists "$capture_dir/codex-desktop.install"
     assert_file_exists "$capture_dir/makepkg.conf"
+    assert_contains "$capture_dir/makepkg.conf" "PKGDEST=$dist_dir"
     assert_contains "$capture_dir/makepkg.conf" "MAKEFLAGS=\"\${MAKEFLAGS:+\$MAKEFLAGS }-j5\""
     [ "$(cat "$capture_dir/makepkg-evaluated-makeflags")" = "-j12 -j5" ] \
         || fail "Expected generated makepkg config to make MAX_BUILD_THREADS win over existing MAKEFLAGS"

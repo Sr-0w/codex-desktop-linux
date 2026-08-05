@@ -74,6 +74,7 @@ write_json_dep() {
     local file="$1"
     local dep="$2"
     local value="$3"
+    # shellcheck disable=SC2016
     node -e '
 const fs = require("fs");
 const [file, dep, value] = process.argv.slice(1);
@@ -121,6 +122,19 @@ if not field_match:
     raise SystemExit(f"Could not find field {sys.argv[3]!r} in {sys.argv[2]!r}")
 print(field_match.group(1))
 PY
+}
+
+read_installer_node_repl_default() {
+    local accessor="$1"
+
+    (
+        unset CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL
+        unset CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256
+        ARCH=x86_64
+        # shellcheck source=scripts/lib/bundled-plugins.sh
+        source "$REPO_DIR/scripts/lib/bundled-plugins.sh"
+        "$accessor"
+    )
 }
 
 json_file_field() {
@@ -258,30 +272,8 @@ assert_equal "native-modules node-pty pin" "$dmg_node_pty_version" "$native_node
 
 flake_node_repl_url="$(read_nix_fetchurl_field browserUseNodeReplRuntime url)"
 flake_node_repl_sri="$(read_nix_fetchurl_field browserUseNodeReplRuntime hash)"
-installer_node_repl_url="$(python3 - "$REPO_DIR/scripts/lib/bundled-plugins.sh" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-text = Path(sys.argv[1]).read_text()
-match = re.search(r'CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL:-([^}"]+)', text)
-if not match:
-    raise SystemExit("Could not find Browser Use node_repl default URL")
-print(match.group(1))
-PY
-)"
-installer_node_repl_sha="$(python3 - "$REPO_DIR/scripts/lib/bundled-plugins.sh" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-text = Path(sys.argv[1]).read_text()
-match = re.search(r'CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256:-([0-9a-f]{64})', text)
-if not match:
-    raise SystemExit("Could not find Browser Use node_repl default SHA-256")
-print(match.group(1))
-PY
-)"
+installer_node_repl_url="$(read_installer_node_repl_default browser_use_node_repl_runtime_url)"
+installer_node_repl_sha="$(read_installer_node_repl_default browser_use_node_repl_runtime_sha256)"
 flake_node_repl_sha="$(python3 - "$flake_node_repl_sri" <<'PY'
 import base64
 import sys

@@ -47,6 +47,7 @@ pacman_version_parts() {
 
 write_threaded_makepkg_config() {
 	local target="$1"
+	local package_destination="$2"
 	local home_dir="${HOME:-}"
 	local xdg_config_home="${XDG_CONFIG_HOME:-}"
 	local user_makepkg_conf=""
@@ -72,8 +73,12 @@ write_threaded_makepkg_config() {
 			done
 			[ -n "$user_makepkg_conf" ] && printf '. %q\n' "$user_makepkg_conf"
 		fi
-		printf 'MAKEFLAGS="${MAKEFLAGS:+$MAKEFLAGS }-j%s"\n' "$MAX_BUILD_THREADS"
-		printf 'COMPRESSZST=(zstd -c -z -T%s -)\n' "$MAX_BUILD_THREADS"
+		printf 'PKGDEST=%q\n' "$package_destination"
+		if [ "$MAX_BUILD_THREADS" != "0" ]; then
+			# shellcheck disable=SC2016
+			printf 'MAKEFLAGS="${MAKEFLAGS:+$MAKEFLAGS }-j%s"\n' "$MAX_BUILD_THREADS"
+			printf 'COMPRESSZST=(zstd -c -z -T%s -)\n' "$MAX_BUILD_THREADS"
+		fi
 	} >"$target"
 }
 
@@ -111,11 +116,11 @@ main() {
 
 	local staging_root="$build_root/staging"
 	local -a makepkg_env=("PKGDEST=$DIST_DIR")
+	local makepkg_config="$build_root/makepkg.conf"
+	write_threaded_makepkg_config "$makepkg_config" "$DIST_DIR"
+	makepkg_env+=("MAKEPKG_CONF=$makepkg_config")
 
 	if [ "$MAX_BUILD_THREADS" != "0" ]; then
-		local makepkg_config="$build_root/makepkg.conf"
-		write_threaded_makepkg_config "$makepkg_config"
-		makepkg_env+=("MAKEPKG_CONF=$makepkg_config")
 		info "Pacman package build/compression threads: $MAX_BUILD_THREADS"
 	fi
 
