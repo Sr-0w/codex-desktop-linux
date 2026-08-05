@@ -110,7 +110,7 @@ copy_runtime_license_metadata() {
     command -v dpkg-query >/dev/null 2>&1 || return 0
     canonical_source="$(readlink -f "$source" 2>/dev/null || printf '%s' "$source")"
     package="$(dpkg-query -S "$canonical_source" "$source" 2>/dev/null \
-        | awk -F: 'NR == 1 {print $1}')"
+        | awk -F: 'NR == 1 {print $1}')" || return 0
     [ -n "$package" ] || return 0
     [ -z "${COPIED_LICENSES[$package]:-}" ] || return 0
     copyright="/usr/share/doc/$package/copyright"
@@ -124,6 +124,11 @@ copy_runtime_license_metadata() {
 collect_elf_dependencies() {
     local elf="$1"
     local dependency
+    local dependencies
+
+    if ! dependencies="$(lddtree -l "$elf")"; then
+        error "Could not resolve private glibc dependencies for $elf"
+    fi
 
     while IFS= read -r dependency; do
         case "$dependency" in
@@ -135,7 +140,7 @@ collect_elf_dependencies() {
                 copy_runtime_library "$dependency"
                 ;;
         esac
-    done < <(lddtree -l "$elf")
+    done <<< "$dependencies"
 }
 
 stage_dri_drivers() {
