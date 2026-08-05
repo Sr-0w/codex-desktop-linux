@@ -168,11 +168,21 @@ main() {
 	# because we have no remote sources to verify.
 	(cd "$build_root" && env "${makepkg_env[@]}" makepkg --config "$makepkg_config" -f --nodeps --skipinteg 2>&1) >&2
 
+	local package_glob="${PACKAGE_NAME}-${PACMAN_PKGVER}-${PACMAN_PKGREL}-${arch}.pkg.tar.*"
 	local pkg_file=""
-	pkg_file="$(find "$DIST_DIR" \( -name "${PACKAGE_NAME}-${PACMAN_PKGVER}-*.pkg.tar.zst" \
-		-o -name "${PACKAGE_NAME}-${PACMAN_PKGVER}-*.pkg.tar.xz" \) \
+	pkg_file="$(find "$DIST_DIR" "$build_root" -maxdepth 1 -type f -name "$package_glob" \
 		-print -quit 2>/dev/null || true)"
 	[ -f "$pkg_file" ] || error "makepkg did not produce a package"
+
+	# Some non-Arch makepkg builds ignore PKGDEST even when it is supplied in
+	# both the environment and the explicit config. Preserve their valid output
+	# before the temporary build directory is removed.
+	if [ "$(dirname "$pkg_file")" != "$DIST_DIR" ]; then
+		local dist_pkg_file
+		dist_pkg_file="$DIST_DIR/$(basename "$pkg_file")"
+		mv -f -- "$pkg_file" "$dist_pkg_file"
+		pkg_file="$dist_pkg_file"
+	fi
 
 	ln -sfn "$(basename "$pkg_file")" "$DIST_DIR/${PACKAGE_NAME}-latest.pkg.tar.zst"
 

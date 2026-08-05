@@ -1045,8 +1045,9 @@ pkgname="$(sed -n 's/^pkgname=//p' PKGBUILD)"
 pkgver="$(sed -n 's/^pkgver=//p' PKGBUILD)"
 pkgrel="$(sed -n 's/^pkgrel=//p' PKGBUILD)"
 arch="$(sed -n "s/^arch=('\([^']*\)').*/\1/p" PKGBUILD)"
-mkdir -p "$PKGDEST"
-touch "$PKGDEST/${pkgname}-${pkgver}-${pkgrel}-${arch}.pkg.tar.zst"
+# Reproduce Ubuntu's makepkg behavior: it may ignore PKGDEST and leave the
+# completed archive in the build directory.
+touch "${pkgname}-${pkgver}-${pkgrel}-${arch}.pkg.tar.zst"
 SCRIPT
     cat > "$bin_dir/cargo" <<'SCRIPT'
 #!/usr/bin/env bash
