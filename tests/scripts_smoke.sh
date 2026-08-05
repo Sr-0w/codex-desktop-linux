@@ -1181,14 +1181,7 @@ test_appimage_builder_smoke() {
     local dist_dir="$workspace/dist"
     local appdir="$workspace/codex-desktop.AppDir"
     local capture_dir="$workspace/capture"
-    local arch
-
-    case "$(uname -m)" in
-        x86_64) arch="x86_64" ;;
-        aarch64|arm64) arch="aarch64" ;;
-        armv7l|armhf) arch="armhf" ;;
-        *) fail "Unsupported AppImage smoke-test architecture: $(uname -m)" ;;
-    esac
+    local arch="aarch64"
 
     mkdir -p "$workspace" "$dist_dir" "$capture_dir"
     make_stub_bin_dir "$bin_dir"
@@ -1219,7 +1212,16 @@ printf '%s\n' "$ARCH" > "$CAPTURE_DIR/arch"
 printf '%s\n' "$VERSION" > "$CAPTURE_DIR/version"
 touch "$last"
 SCRIPT
-    chmod +x "$bin_dir/appimagetool"
+    cat > "$bin_dir/uname" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "-m" ]; then
+    printf '%s\n' aarch64
+    exit 0
+fi
+exec /usr/bin/uname "$@"
+SCRIPT
+    chmod +x "$bin_dir/appimagetool" "$bin_dir/uname"
 
     PATH="$bin_dir:$PATH" \
     CAPTURE_DIR="$capture_dir" \
@@ -1263,7 +1265,7 @@ SCRIPT
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "CODEX_APPIMAGE_UPDATE_ASSUME_YES"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "api.github.com/repos/Sr-0w/codex-desktop-linux/releases/latest"
     assert_not_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "/usr/share/applications"
-    [ "$(cat "$capture_dir/arch")" = "$arch" ] || fail "Expected appimagetool ARCH=$arch"
+    [ "$(cat "$capture_dir/arch")" = "arm_aarch64" ] || fail "Expected appimagetool ARM64 compatibility architecture"
     [ "$(cat "$capture_dir/version")" = "2026.03.24.120000+appimage" ] || fail "Expected appimagetool VERSION override"
 }
 

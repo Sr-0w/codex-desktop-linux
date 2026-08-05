@@ -27,6 +27,15 @@ map_arch() {
     esac
 }
 
+map_appimagetool_arch() {
+    case "$1" in
+        # AppImageKit's continuous appimagetool parser calls this architecture
+        # arm_aarch64 even though its runtime and output convention use aarch64.
+        aarch64) echo "arm_aarch64" ;;
+        *) echo "$1" ;;
+    esac
+}
+
 resolve_appimagetool() {
     if [ -n "${APPIMAGETOOL:-}" ]; then
         [ -x "$APPIMAGETOOL" ] || error "APPIMAGETOOL is not executable: $APPIMAGETOOL"
@@ -97,9 +106,11 @@ main() {
     ensure_file_exists "$ICON_SOURCE" "icon"
 
     local arch
+    local appimagetool_arch
     local appimagetool
     local output_file
     arch="$(map_arch)"
+    appimagetool_arch="$(map_appimagetool_arch "$arch")"
     appimagetool="$(resolve_appimagetool)"
     output_file="$DIST_DIR/${PACKAGE_NAME}-${PACKAGE_VERSION}-${arch}.AppImage"
 
@@ -108,7 +119,7 @@ main() {
     mkdir -p "$DIST_DIR"
     rm -f "$output_file"
     info "Building AppImage: $output_file"
-    ARCH="$arch" VERSION="$PACKAGE_VERSION" \
+    ARCH="$appimagetool_arch" VERSION="$PACKAGE_VERSION" \
         "$appimagetool" --no-appstream "$APPDIR" "$output_file" >&2
     chmod 0755 "$output_file"
     info "Built AppImage: $output_file"
