@@ -74,6 +74,7 @@ write_threaded_makepkg_config() {
 			[ -n "$user_makepkg_conf" ] && printf '. %q\n' "$user_makepkg_conf"
 		fi
 		printf 'PKGDEST=%q\n' "$package_destination"
+		printf "PKGEXT='.pkg.tar.zst'\n"
 		if [ "$MAX_BUILD_THREADS" != "0" ]; then
 			# shellcheck disable=SC2016
 			printf 'MAKEFLAGS="${MAKEFLAGS:+$MAKEFLAGS }-j%s"\n' "$MAX_BUILD_THREADS"
