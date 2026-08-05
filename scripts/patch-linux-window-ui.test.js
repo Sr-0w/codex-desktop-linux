@@ -492,6 +492,31 @@ test("Linux target context treats Gentoo as a native package target", () => {
   assert.match(linuxTargetSummary(target), /^gentoo:2\.18\/gentoo/);
 });
 
+test("Linux target context treats postmarketOS as an APK Plasma Mobile target", () => {
+  const target = detectLinuxTargetContext({
+    osReleaseFields: {
+      ID: "postmarketos",
+      ID_LIKE: "alpine",
+      VERSION_ID: "26.06",
+      PRETTY_NAME: "postmarketOS v26.06",
+    },
+    env: {
+      PATH: "",
+      XDG_CURRENT_DESKTOP: "KDE:Plasma:PlasmaMobile",
+      XDG_SESSION_TYPE: "wayland",
+    },
+  });
+
+  assert.equal(target.distro.id, "postmarketos");
+  assert.equal(target.packageFormat, "apk");
+  assert.equal(target.packageManager, "apk");
+  assert.equal(target.matchesId("alpine"), true);
+  assert.equal(target.packageFormatIs("apk"), true);
+  assert.equal(target.desktopMatches("plasmamobile"), true);
+  assert.equal(target.wayland, true);
+  assert.match(linuxTargetSummary(target), /^postmarketos:26\.06\/apk:kde\+plasma\+plasmamobile/);
+});
+
 test("build info captures DMG hash, features, distro profile, and source revision", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-build-info-"));
   // This test reads features.json from its own featuresRoot, which the
@@ -633,6 +658,24 @@ test("package profile describes Gentoo overlay installs", () => {
   assert.equal(profile.packageManager, "emerge");
   assert.equal(profile.format, ".gentoo.tar.zst");
   assert.match(profile.notes, /app-editors\/codex-desktop-bin/);
+});
+
+test("package profile describes the postmarketOS Plasma Mobile APK", () => {
+  const postmarketos = detectLinuxTargetContext({
+    osReleaseFields: {
+      ID: "postmarketos",
+      ID_LIKE: "alpine",
+      VERSION_ID: "26.06",
+      PRETTY_NAME: "postmarketOS v26.06",
+    },
+    env: { PATH: "", XDG_CURRENT_DESKTOP: "KDE:Plasma:PlasmaMobile" },
+  });
+
+  const profile = packageProfile(postmarketos);
+  assert.equal(profile.id, "postmarketos");
+  assert.equal(profile.packageManager, "apk");
+  assert.equal(profile.format, ".apk");
+  assert.match(profile.notes, /Plasma Mobile Wayland/);
 });
 
 test("auto-discovered core patches can target a specific Linux distro", () => {

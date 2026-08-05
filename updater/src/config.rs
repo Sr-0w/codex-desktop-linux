@@ -131,7 +131,9 @@ impl RuntimeConfig {
     /// Builds the default runtime configuration for the resolved paths.
     pub fn default_with_paths(paths: &RuntimePaths) -> Self {
         let packaged_bundle_root = PathBuf::from("/opt/codex-desktop/update-builder");
-        let builder_bundle_root = if packaged_bundle_root.exists() {
+        let builder_bundle_root = if packaged_bundle_root.exists()
+            || PathBuf::from("/opt/codex-desktop/electron").exists()
+        {
             packaged_bundle_root
         } else {
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))

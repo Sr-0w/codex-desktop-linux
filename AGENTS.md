@@ -3,9 +3,9 @@
 ## Purpose
 
 This repository adapts the official macOS Codex Desktop DMG into a runnable
-Linux app, packages that app as native `.deb`, `.rpm`, pacman, and AppImage
-artifacts, and ships a local Rust update manager that can rebuild future Linux
-packages from newer upstream DMGs.
+Linux app, packages that app as native `.deb`, `.rpm`, pacman, postmarketOS
+APK, and AppImage artifacts, and ships a local Rust update manager that can
+rebuild future Linux packages from newer upstream DMGs.
 
 The current flow is:
 
@@ -19,8 +19,8 @@ The current flow is:
 5. Declarative Linux feature resources/runtime hooks and legacy `stage.sh`
    hooks are staged into `codex-app/`.
 6. `install.sh` writes the generated Linux launcher into `codex-app/start.sh`.
-7. Package builders turn `codex-app/` into `.deb`, `.rpm`, pacman, or AppImage
-   artifacts.
+7. Package builders turn `codex-app/` into `.deb`, `.rpm`, pacman,
+   postmarketOS APK, or AppImage artifacts.
 8. Native packages include `codex-update-manager` and an update-builder bundle
    so local auto-updates rebuild future packages with the same feature config.
 
@@ -233,6 +233,9 @@ extension point to core rather than moving the feature itself into core.
   Builds `.pkg.tar.zst` from `codex-app/`.
 - `scripts/build-appimage.sh`
   Builds an AppImage using `packaging/appimage/`.
+- `scripts/build-postmarketos.sh` / `scripts/stage-postmarketos-runtime.sh`
+  Build the aarch64 postmarketOS APK and stage its app-local glibc/Mesa runtime
+  for Plasma Mobile and Raspberry Pi 4.
 - `packaging/linux/`
   Debian control files, RPM spec, pacman `PKGBUILD.template`/install hooks,
   desktop entry, icon policy, Polkit policy, packaged runtime helper, shared
@@ -240,12 +243,15 @@ extension point to core rather than moving the feature itself into core.
   (desktop-entry validation/repair run from package hooks).
 - `packaging/appimage/`
   AppImage `AppRun`, desktop file, and runtime helper.
+- `packaging/postmarketos/`
+  Alpine `APKBUILD`, package hooks, and postmarketOS packaging notes.
 
 The native package payload installs the app under `/opt/codex-desktop`, the
 launcher under `/usr/bin/codex-desktop`, the updater under
-`/usr/bin/codex-update-manager`, the user service under
-`/usr/lib/systemd/user/`, desktop/icon metadata under `/usr/share/`, and an
-update-builder bundle under `/opt/codex-desktop/update-builder`.
+`/usr/bin/codex-update-manager`, and desktop/icon metadata under `/usr/share/`.
+Debian, RPM, and pacman packages add a user service; glibc native formats also
+carry `/opt/codex-desktop/update-builder`. The postmarketOS APK omits both and
+uses launch-time checks plus the verified prebuilt-APK update path.
 
 ### Updater (`updater/`)
 
@@ -254,6 +260,9 @@ update-builder bundle under `/opt/codex-desktop/update-builder`.
 - `builder.rs`
   Drives the packaged update-builder bundle to rebuild packages from newer
   upstream DMGs.
+- `prebuilt.rs`
+  Downloads and verifies the fixed postmarketOS ARM64 APK release asset; musl
+  hosts use this path instead of rebuilding the glibc Electron app locally.
 - `upstream.rs`
   Upstream DMG polling, ETag cache, download, and hash verification.
 - `wrapper.rs` / `wrapper_apply.rs` / `changelog.rs` / `feature_picker.rs`
@@ -488,6 +497,7 @@ Build native packages:
 ./scripts/build-rpm.sh
 ./scripts/build-pacman.sh
 ./scripts/build-appimage.sh
+./scripts/build-postmarketos.sh
 ```
 
 Common package version override:
@@ -508,7 +518,7 @@ Side-by-side rebuild candidate:
 - `python3`, `7z`, `curl`, `unzip`, `tar`, `make`, and `g++` are required for
   `install.sh`.
 - Native package builders require their format-specific tools (`dpkg-deb`,
-  `rpmbuild`, `makepkg`/pacman tooling, or `appimagetool`).
+  `rpmbuild`, `makepkg`/pacman tooling, Alpine `abuild`, or `appimagetool`).
 - `scripts/install-deps.sh` bootstraps common host dependencies. On apt-based
   systems, `NODEJS_MAJOR=24 bash scripts/install-deps.sh` selects Node.js 24
   instead of the default NodeSource major.

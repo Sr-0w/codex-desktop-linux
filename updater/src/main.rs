@@ -13,6 +13,7 @@ mod install_rollback;
 mod liveness;
 mod logging;
 mod notify;
+mod prebuilt;
 mod rollback;
 mod state;
 #[cfg(test)]

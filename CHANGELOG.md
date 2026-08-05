@@ -15,6 +15,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   select only a matching architecture, and Gentoo bundles reject installation
   on a mismatched host. A verified ARM64 Browser Use `node_repl` archive can be
   injected through build variables when one becomes available.
+- A dedicated ARM64 postmarketOS APK for Plasma Mobile and Raspberry Pi 4. It
+  keeps glibc private to the app, stages the V3D Mesa driver, launches through
+  native Wayland with mobile text-input support, and ships a musl updater that
+  downloads and verifies the fixed APK asset from the latest stable GitHub
+  Release. ARM64 AppImage publication remains available for glibc systems.
 
 ## [0.8.4] - 2026-06-20
 

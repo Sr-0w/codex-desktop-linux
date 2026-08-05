@@ -236,6 +236,15 @@ function packageProfile(target) {
       notes: "Installs app-editors/codex-desktop-bin from the bundled local Portage overlay",
     };
   }
+  if (ids.has("postmarketos") || ids.has("alpine")) {
+    return {
+      id: "postmarketos",
+      label: "postmarketOS / Alpine (aarch64)",
+      packageManager: "apk",
+      format: ".apk",
+      notes: "Plasma Mobile Wayland build with an app-local glibc runtime",
+    };
+  }
   return {
     id: "other-linux",
     label: "Atomic desktops / other Linux distros",

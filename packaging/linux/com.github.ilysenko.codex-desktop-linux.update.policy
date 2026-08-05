@@ -55,6 +55,18 @@
     <annotate key="org.freedesktop.policykit.exec.argv1">install-gentoo</annotate>
   </action>
 
+  <action id="com.github.ilysenko.codex-desktop-linux.update.install-apk">
+    <description>Install a Codex Desktop update</description>
+    <message>Authentication is required to install the Codex Desktop update.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/codex-update-manager</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">install-apk</annotate>
+  </action>
+
   <action id="com.github.ilysenko.codex-desktop-linux.update.rollback-deb">
     <description>Roll back a Codex Desktop update</description>
     <message>Authentication is required to roll back the Codex Desktop update.</message>
@@ -101,5 +113,17 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/codex-update-manager</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">install-rollback-gentoo</annotate>
+  </action>
+
+  <action id="com.github.ilysenko.codex-desktop-linux.update.rollback-apk">
+    <description>Roll back a Codex Desktop update</description>
+    <message>Authentication is required to roll back the Codex Desktop update.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/codex-update-manager</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">install-rollback-apk</annotate>
   </action>
 </policyconfig>

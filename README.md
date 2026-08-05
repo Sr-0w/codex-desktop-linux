@@ -12,8 +12,8 @@ resources, Chrome native messaging, and Linux Computer Use support.
 ## What This Project Does
 
 - Builds Linux packages from the upstream Codex Desktop app.
-- Ships `.deb`, `.rpm`, pacman, Gentoo overlay, and AppImage artifacts through
-  GitHub Releases.
+- Ships `.deb`, `.rpm`, pacman, Gentoo overlay, postmarketOS APK, and AppImage
+  artifacts through GitHub Releases.
 - Rebuilds native Electron modules for Linux.
 - Adds Linux launcher behavior for desktop sessions, app identity, warm starts,
   local webview assets, and runtime paths.
@@ -38,19 +38,35 @@ Choose `amd64`/`x86_64` for Intel or AMD systems and `arm64`/`aarch64` for
 | openSUSE | `codex-desktop-linux-{x86_64,aarch64}.rpm` | `sudo zypper install ./codex-desktop-linux-<arch>.rpm` |
 | Arch, Manjaro, EndeavourOS, Arch Linux ARM | `codex-desktop-linux-{x86_64,aarch64}.pkg.tar.zst` | `sudo pacman -U ./codex-desktop-linux-<arch>.pkg.tar.zst` |
 | Gentoo | `codex-desktop-linux-{amd64,arm64}.gentoo.tar.zst` | `tar -xf codex-desktop-linux-<arch>.gentoo.tar.zst && sudo ./codex-desktop-linux-gentoo/install-gentoo.sh` |
+| postmarketOS with Plasma Mobile | `codex-desktop-linux-postmarketos-aarch64.apk` | `doas apk add --allow-untrusted --upgrade ./codex-desktop-linux-postmarketos-aarch64.apk` |
 | Other 64-bit glibc distros | `codex-desktop-linux-{x86_64,aarch64}.AppImage` | `chmod +x ./codex-desktop-linux-<arch>.AppImage && ./codex-desktop-linux-<arch>.AppImage` |
 
-Native packages install the app as `codex-desktop` and include the local update
-manager. The Gentoo release installs `app-editors/codex-desktop-bin` from a
-local Portage overlay. AppImage builds are portable, check GitHub Releases on launch, and can download and replace the AppImage after confirmation when a
-newer release is published.
+For postmarketOS, download the adjacent `.sha256` file and verify it before the
+first install. Use `sudo` instead of `doas` when that is the configured privilege
+tool:
+
+```bash
+sha256sum -c codex-desktop-linux-postmarketos-aarch64.apk.sha256
+doas apk add --allow-untrusted --upgrade ./codex-desktop-linux-postmarketos-aarch64.apk
+```
+
+Native packages install the app as `codex-desktop` and include
+`codex-update-manager`. The Gentoo release installs
+`app-editors/codex-desktop-bin` from a local Portage overlay. The postmarketOS
+package uses native Wayland integration, Wayland text input, and a private
+glibc/Mesa runtime with the Raspberry Pi 4 V3D driver; it does not replace the
+system musl C library. AppImage builds are portable, check GitHub Releases on
+launch, and can replace themselves after confirmation on compatible glibc
+distributions when a newer release is published.
 
 ARM64 packages currently include the app, CLI integration, native updater,
 Chrome native host, and Linux Computer Use binaries. OpenAI's separately
 published privileged Browser Use `node_repl` runtime is currently available to
 this project only for Linux x86_64. Browser Use on ARM64 remains unavailable
-unless a verified ARM64 runtime is supplied during the build. ARM 32-bit and
-musl-only distributions are not release targets.
+unless a verified ARM64 runtime is supplied during the build. ARM 32-bit is not
+a release target. The dedicated postmarketOS APK is the supported musl-system
+exception; generic Alpine desktop configurations are not part of its release
+test matrix.
 
 ## After Install
 
@@ -69,11 +85,13 @@ to run the desktop app.
 
 ## Updates
 
-Native packages include `codex-update-manager`, which can rebuild and install a
-new local package when upstream Codex Desktop updates. AppImage users get a
-release prompt when a newer AppImage is published; accepting it downloads the
-new AppImage, verifies it, and installs it next to a timestamped backup of the
-previous file.
+Debian, RPM, pacman, and Gentoo packages include `codex-update-manager`, which
+can rebuild and install a new local package when upstream Codex Desktop updates.
+On postmarketOS, the manager downloads the fixed ARM64 APK asset from the latest
+stable GitHub Release, verifies its published SHA-256 and package identity, and
+offers to install it after Codex exits. AppImage users get a release prompt when
+a newer matching-architecture AppImage is published; the previous file remains
+available as a timestamped backup.
 
 See [Updater](docs/updater.md) for update-manager details and rollback notes.
 

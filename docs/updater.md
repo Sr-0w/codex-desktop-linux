@@ -3,9 +3,9 @@
 Default native packages install `codex-update-manager`. Debian, RPM, and
 pacman packages also install a companion `systemd --user` service.
 
-On Gentoo/OpenRC and other non-systemd desktops, native package launches fall
-back to running `codex-update-manager check-now --if-stale` directly in the
-background.
+On Gentoo/OpenRC, postmarketOS, and other non-systemd desktops, native package
+launches fall back to running `codex-update-manager check-now --if-stale`
+directly in the background.
 
 It:
 
@@ -18,8 +18,16 @@ It:
 - runs unprivileged; the final package install uses `pkexec` when a graphical
   polkit authentication agent is available, or keeps the package ready and
   reports a terminal `sudo /usr/bin/codex-update-manager ... --path ...`
-  command when no auth agent is available
+  command when no auth agent is available (`doas` is used in that message on
+  postmarketOS)
 - performs best-effort Codex CLI preflight from the launcher
+
+The postmarketOS package is intentionally different: a musl host does not
+rebuild the glibc Electron payload locally. Its updater polls the checksum for
+`codex-desktop-linux-postmarketos-aarch64.apk` on the latest stable GitHub
+Release, downloads the APK when it changes, verifies SHA-256 plus `pkgname` and
+`pkgver`, and then uses the same wait-for-exit, polkit, and rollback state
+machine as other native packages.
 
 ## Inspect State
 
@@ -30,7 +38,7 @@ sed -n '1,160p' ~/.local/state/codex-update-manager/state.json
 sed -n '1,160p' ~/.local/state/codex-update-manager/service.log
 ```
 
-On Gentoo/OpenRC, skip the `systemctl --user` line and inspect
+On Gentoo/OpenRC or postmarketOS, skip the `systemctl --user` line and inspect
 `codex-update-manager status --json` plus
 `~/.local/state/codex-update-manager/service.log`.
 

@@ -76,6 +76,11 @@ pub enum Commands {
         #[arg(long)]
         path: PathBuf,
     },
+    /// Install a postmarketOS/Alpine package (.apk) with elevated privileges.
+    InstallApk {
+        #[arg(long)]
+        path: PathBuf,
+    },
     /// Install a Debian package as an explicit rollback with elevated privileges.
     InstallRollbackDeb {
         #[arg(long)]
@@ -93,6 +98,11 @@ pub enum Commands {
     },
     /// Install a Gentoo overlay artifact as an explicit rollback with elevated privileges.
     InstallRollbackGentoo {
+        #[arg(long)]
+        path: PathBuf,
+    },
+    /// Install an APK as an explicit rollback with elevated privileges.
+    InstallRollbackApk {
         #[arg(long)]
         path: PathBuf,
     },

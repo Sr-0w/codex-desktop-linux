@@ -92,10 +92,12 @@ helpers, and the updater are all selected or compiled for the host. The release
 workflow uses separate native GitHub runners and never repackages an x86_64
 `codex-app` as ARM64.
 
-On ARM64, use a 64-bit glibc distribution. Raspberry Pi OS 64-bit, Debian
-arm64, Ubuntu arm64, Fedora/openSUSE aarch64, Arch Linux ARM, Gentoo arm64, and
-NixOS aarch64 are the intended targets. ARM 32-bit and musl-only systems are
-outside the release contract.
+On ARM64, Raspberry Pi OS 64-bit, Debian arm64, Ubuntu arm64,
+Fedora/openSUSE aarch64, Arch Linux ARM, Gentoo arm64, NixOS aarch64, and the
+dedicated postmarketOS/Plasma Mobile APK are release targets. Generic package
+formats and both AppImages target glibc. The postmarketOS APK instead carries an
+app-local glibc dependency closure and private Mesa DRI drivers while keeping
+the host musl system unchanged. ARM 32-bit is outside the release contract.
 
 OpenAI currently publishes the privileged Browser Use `node_repl` primary
 runtime used here only for Linux x86_64. An ARM64 build can supply a verified
@@ -147,8 +149,9 @@ After `make build-app` or `make build-app-fresh`, build a package from
 | RPM | `make rpm` | `dist/codex-desktop-*.{x86_64,aarch64}.rpm` | `sudo dnf install dist/codex-desktop-*.rpm` or `sudo zypper install dist/codex-desktop-*.rpm` |
 | Arch | `make pacman` | `dist/codex-desktop-*.pkg.tar.zst` | `sudo pacman -U dist/codex-desktop-*.pkg.tar.zst` |
 | Gentoo | `make gentoo` | `dist/codex-desktop-*.gentoo.tar.zst` | `sudo target/release/codex-update-manager install-gentoo --path dist/codex-desktop-*.gentoo.tar.zst` |
+| postmarketOS | `make postmarketos` | `dist/codex-desktop-*-aarch64.apk` | `doas apk add --allow-untrusted --upgrade dist/codex-desktop-*-aarch64.apk` |
 | AppImage | `make appimage` | `dist/codex-desktop-*.AppImage` | Run directly |
-| Auto-detect | `make package && make install` | matches host distro | handled by `make install` |
+| Auto-detect (glibc native formats) | `make package && make install` | matches Debian, RPM, Arch, or Gentoo host | handled by `make install` |
 
 Override package version:
 
@@ -164,6 +167,25 @@ The Gentoo builder creates a self-contained Portage overlay artifact for
 and `install-gentoo.sh`. The installed payload omits the `systemd --user` unit;
 OpenRC/non-systemd sessions rely on the packaged launch-time
 `codex-update-manager check-now --if-stale` fallback.
+
+### postmarketOS / Plasma Mobile
+
+The APK must be assembled on a native aarch64 glibc build host, as done by the
+release workflow on `ubuntu-24.04-arm`. Generate `codex-app/` there with the
+postmarketOS target overrides, install `patchelf`, `pax-utils`, Mesa DRI files,
+Alpine `abuild` through Docker/Podman, `musl-tools`, and the Rust
+`aarch64-unknown-linux-musl` target, then run:
+
+```bash
+make postmarketos
+```
+
+`make postmarketos` builds a musl-linked updater, stages the private glibc
+runtime and V3D driver, and asks Alpine 3.22 `abuild` to create the APK. Building
+the app itself directly on postmarketOS is not supported because Electron and
+its native addons must first be produced together against glibc. The release
+workflow performs an Alpine-musl smoke test of Electron-as-Node, managed Node,
+and `better-sqlite3` before publishing the package.
 
 ## AppImage Local Self-Build
 

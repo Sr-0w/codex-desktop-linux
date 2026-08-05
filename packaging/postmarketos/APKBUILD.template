@@ -1,0 +1,32 @@
+# Copyright 2026 Codex Desktop Linux Maintainers
+# Distributed under the terms of the MIT license
+
+pkgname=__PACKAGE_NAME__
+pkgver=__PKGVER__
+pkgrel=0
+pkgdesc="Codex Desktop for postmarketOS and Plasma Mobile"
+url="https://github.com/Sr-0w/codex-desktop-linux"
+arch="__ARCH__"
+license="MIT AND custom"
+depends="
+	bash
+	ca-certificates
+	curl
+	dbus
+	desktop-file-utils
+	gzip
+	kdialog
+	libnotify
+	polkit
+	python3
+	tar
+	util-linux
+	xdg-utils
+"
+options="!check !fhs !strip !tracedeps"
+install="$pkgname.post-install $pkgname.post-upgrade"
+
+package() {
+	mkdir -p "$pkgdir"
+	cp -a "__STAGING_DIR__"/. "$pkgdir"/
+}

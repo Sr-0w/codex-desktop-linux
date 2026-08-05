@@ -5,7 +5,7 @@ use crate::{
     cli::{Cli, Commands},
     codex_cli,
     config::{RuntimeConfig, RuntimePaths},
-    feature_picker, install, install_rollback, liveness, logging, notify, rollback,
+    feature_picker, install, install_rollback, liveness, logging, notify, prebuilt, rollback,
     state::{CliStatus, PersistedState, UpdateStatus},
     upstream, wrapper, wrapper_apply,
 };
@@ -96,10 +96,12 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::InstallRpm { path } => install::install_rpm(&path),
         Commands::InstallPacman { path } => install::install_pacman(&path),
         Commands::InstallGentoo { path } => install::install_gentoo(&path),
+        Commands::InstallApk { path } => install::install_apk(&path),
         Commands::InstallRollbackDeb { path } => install_rollback::install_deb(&path),
         Commands::InstallRollbackRpm { path } => install_rollback::install_rpm(&path),
         Commands::InstallRollbackPacman { path } => install_rollback::install_pacman(&path),
         Commands::InstallRollbackGentoo { path } => install_rollback::install_gentoo(&path),
+        Commands::InstallRollbackApk { path } => install_rollback::install_apk(&path),
     }
 }
 
@@ -891,6 +893,10 @@ async fn run_check_cycle(
 
     let retrying_failed_update = state.status == UpdateStatus::Failed;
 
+    if install::PackageKind::detect() == install::PackageKind::Apk {
+        return run_prebuilt_apk_check_cycle(config, state, paths, retrying_failed_update).await;
+    }
+
     let Some(_check_lock) = try_acquire_check_lock(paths)? else {
         return Ok(());
     };
@@ -996,6 +1002,121 @@ async fn run_check_cycle(
     if let Err(error) = result {
         mark_failed_and_persist(state, paths, error.to_string())?;
         maybe_prune_caches(config, state);
+        let _ = notify_failure(config, state, paths, &error);
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+async fn run_prebuilt_apk_check_cycle(
+    config: &RuntimeConfig,
+    state: &mut PersistedState,
+    paths: &RuntimePaths,
+    retrying_failed_update: bool,
+) -> Result<()> {
+    let Some(_check_lock) = try_acquire_check_lock(paths)? else {
+        return Ok(());
+    };
+    let client = Client::builder()
+        .user_agent(concat!(
+            "codex-desktop-linux-updater/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+
+    sync_runtime_state(config, state);
+    state.status = UpdateStatus::CheckingUpstream;
+    state.last_check_at = Some(Utc::now());
+    state.error_message = None;
+    persist_state(paths, state)?;
+
+    let result: Result<()> = async {
+        let metadata = prebuilt::fetch_remote_metadata(&client).await?;
+        let previous_headers_fingerprint = state.remote_headers_fingerprint.clone();
+        state.remote_headers_fingerprint = Some(metadata.headers_fingerprint.clone());
+        state.last_successful_check_at = Some(Utc::now());
+
+        if previous_headers_fingerprint.as_deref() == Some(metadata.headers_fingerprint.as_str())
+            && state.dmg_sha256.is_some()
+            && !retrying_failed_update
+        {
+            set_status(state, paths, UpdateStatus::Idle)?;
+            info!("prebuilt APK fingerprint unchanged; skipping download");
+            return Ok(());
+        }
+
+        set_status(state, paths, UpdateStatus::DownloadingDmg)?;
+        let downloads_dir = config.workspace_root.join("prebuilt-apk-downloads");
+        let downloaded = prebuilt::download_apk(&client, &downloads_dir).await?;
+
+        if state.installed_version != "unknown"
+            && !install::apk_version_is_newer(
+                &downloaded.candidate_version,
+                &state.installed_version,
+            )?
+        {
+            state.status = UpdateStatus::Idle;
+            state.candidate_version = None;
+            state.dmg_sha256 = Some(downloaded.sha256);
+            state.artifact_paths.dmg_path = None;
+            state.artifact_paths.workspace_dir = None;
+            state.artifact_paths.package_path = Some(downloaded.path);
+            persist_state(paths, state)?;
+            info!("latest release APK is already installed");
+            return Ok(());
+        }
+
+        if state
+            .rollback_blocked_candidate_version
+            .as_deref()
+            .is_some_and(|blocked| blocked == downloaded.candidate_version)
+        {
+            state.status = UpdateStatus::Idle;
+            state.error_message = Some(format!(
+                "Candidate {} was rolled back and will not be reinstalled automatically",
+                downloaded.candidate_version
+            ));
+            persist_state(paths, state)?;
+            return Ok(());
+        }
+
+        if state.dmg_sha256.as_deref() == Some(downloaded.sha256.as_str())
+            && !retrying_failed_update
+        {
+            state.status = UpdateStatus::Idle;
+            state.artifact_paths.package_path = Some(downloaded.path);
+            persist_state(paths, state)?;
+            info!("release APK hash matches the current cached package");
+            return Ok(());
+        }
+
+        rollback::record_current_package_as_known_good(state);
+        state.status = UpdateStatus::UpdateDetected;
+        state.candidate_version = Some(downloaded.candidate_version.clone());
+        state.dmg_sha256 = Some(downloaded.sha256);
+        state.artifact_paths.dmg_path = None;
+        state.artifact_paths.workspace_dir = None;
+        state.artifact_paths.package_path = Some(downloaded.path);
+        state.notified_events.clear();
+        persist_state(paths, state)?;
+
+        maybe_notify(
+            state,
+            paths,
+            config.notifications,
+            "update_detected",
+            "New Codex Desktop update detected",
+            "A verified postmarketOS package is ready to install.",
+        )?;
+        set_status(state, paths, UpdateStatus::ReadyToInstall)?;
+        maybe_notify_update_ready(state, paths, config.notifications)?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = result {
+        mark_failed_and_persist(state, paths, error.to_string())?;
         let _ = notify_failure(config, state, paths, &error);
         return Err(error);
     }
@@ -1693,14 +1814,20 @@ fn manual_install_required_message(package_path: &Path) -> String {
 }
 
 fn manual_install_command(package_path: &Path) -> String {
-    let subcommand = match install::PackageKind::from_path(package_path) {
+    let package_kind = install::PackageKind::from_path(package_path);
+    let subcommand = match package_kind {
         install::PackageKind::Deb => "install-deb",
         install::PackageKind::Rpm => "install-rpm",
         install::PackageKind::Pacman => "install-pacman",
         install::PackageKind::Gentoo => "install-gentoo",
+        install::PackageKind::Apk => "install-apk",
+    };
+    let privilege_tool = match package_kind {
+        install::PackageKind::Apk => "doas",
+        _ => "sudo",
     };
     format!(
-        "sudo /usr/bin/codex-update-manager {subcommand} --path {}",
+        "{privilege_tool} /usr/bin/codex-update-manager {subcommand} --path {}",
         shell_quote_path(package_path)
     )
 }
@@ -3066,6 +3193,10 @@ mod tests {
         assert_eq!(
             manual_install_command(Path::new("/tmp/codex update.gentoo.tar.zst")),
             "sudo /usr/bin/codex-update-manager install-gentoo --path '/tmp/codex update.gentoo.tar.zst'"
+        );
+        assert_eq!(
+            manual_install_command(Path::new("/tmp/codex update.apk")),
+            "doas /usr/bin/codex-update-manager install-apk --path '/tmp/codex update.apk'"
         );
     }
 

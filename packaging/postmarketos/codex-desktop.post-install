@@ -1,0 +1,15 @@
+#!/bin/sh
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+fi
+
+doctor="/opt/codex-desktop/.codex-linux/codex-desktop-entry-doctor.sh"
+if [ -f "$doctor" ]; then
+    # shellcheck source=/opt/codex-desktop/.codex-linux/codex-desktop-entry-doctor.sh
+    # shellcheck disable=SC1091
+    . "$doctor"
+    codex_desktop_repair_system_package_shadow_entries codex-desktop || true
+fi
+
+exit 0

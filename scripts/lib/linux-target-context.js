@@ -8,6 +8,7 @@ const DEB_IDS = ["debian", "ubuntu", "linuxmint", "pop", "elementary", "zorin"];
 const RPM_IDS = ["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "sles", "suse", "opensuse"];
 const PACMAN_IDS = ["arch", "archlinux", "manjaro", "endeavouros", "artix"];
 const GENTOO_IDS = ["gentoo"];
+const APK_IDS = ["alpine", "postmarketos"];
 
 function trimOsReleaseValue(value) {
   return String(value ?? "").trim().replace(/^["']|["']$/g, "");
@@ -128,6 +129,9 @@ function detectPackageFormat(tokens, env) {
   if (override) {
     return override;
   }
+  if (tokenMatches(tokens, APK_IDS)) {
+    return "apk";
+  }
   if (tokenMatches(tokens, PACMAN_IDS)) {
     return "pacman";
   }
@@ -142,6 +146,9 @@ function detectPackageFormat(tokens, env) {
   }
   if (executableExists("pacman", env) && !executableExists("dpkg-deb", env)) {
     return "pacman";
+  }
+  if (executableExists("apk", env) && !executableExists("dpkg-deb", env)) {
+    return "apk";
   }
   if (executableExists("emerge", env) && !executableExists("dpkg-deb", env)) {
     return "gentoo";
@@ -161,6 +168,9 @@ function detectPackageFormat(tokens, env) {
   if (executableExists("emerge", env)) {
     return "gentoo";
   }
+  if (executableExists("apk", env)) {
+    return "apk";
+  }
   return "unknown";
 }
 
@@ -168,6 +178,9 @@ function detectPackageManager(tokens, env, versionMajorValue) {
   const override = normalizeToken(env.CODEX_LINUX_TARGET_PACKAGE_MANAGER);
   if (override) {
     return override;
+  }
+  if (tokenMatches(tokens, APK_IDS)) {
+    return "apk";
   }
   if (tokenMatches(tokens, PACMAN_IDS)) {
     return "pacman";
@@ -193,7 +206,7 @@ function detectPackageManager(tokens, env, versionMajorValue) {
     }
     return "unknown";
   }
-  for (const command of ["apt", "dnf5", "dnf", "pacman", "emerge", "zypper"]) {
+  for (const command of ["apk", "apt", "dnf5", "dnf", "pacman", "emerge", "zypper"]) {
     if (executableExists(command, env)) {
       return command;
     }
@@ -278,6 +291,7 @@ function linuxTargetSummary(target) {
 }
 
 module.exports = {
+  APK_IDS,
   DEB_IDS,
   GENTOO_IDS,
   PACMAN_IDS,

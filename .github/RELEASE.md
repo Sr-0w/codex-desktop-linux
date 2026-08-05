@@ -35,6 +35,7 @@ uploads:
 - `codex-desktop-linux-aarch64.pkg.tar.zst`
 - `codex-desktop-linux-amd64.gentoo.tar.zst`
 - `codex-desktop-linux-arm64.gentoo.tar.zst`
+- `codex-desktop-linux-postmarketos-aarch64.apk`
 - matching `.sha256` checksum files
 - architecture-suffixed upstream DMG, patch report, and build-info metadata
 
@@ -53,6 +54,9 @@ Before release publication, the workflow must:
   `scripts/ci/validate-patch-report.js --profile upstream-build`
 - inspect package contents for updater and update-builder payloads
 - build packages with the same generated app bundle
+- build the postmarketOS app profile independently on native ARM64, stage its
+  private glibc/V3D runtime, and smoke-test Electron, Node.js, and
+  `better-sqlite3` inside Alpine musl
 
 The official primary-runtime archive used for Browser Use currently contains
 only a Linux x86_64 `node_repl`. When OpenAI publishes an ARM64 archive, set

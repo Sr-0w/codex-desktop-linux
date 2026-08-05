@@ -2734,6 +2734,8 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'pacman_arch: aarch64'
     assert_contains "$workflow" 'gentoo_arch: arm64'
     assert_contains "$workflow" 'appimagetool_arch: aarch64'
+    assert_contains "$workflow" 'build_id: postmarketos-aarch64'
+    assert_contains "$workflow" 'target_desktop: KDE:Plasma:PlasmaMobile'
     assert_contains "$workflow" 'RELEASE_DMG_METADATA_PATH: /tmp/codex-upstream-ci/upstream-dmg-metadata.json'
     assert_contains "$workflow" 'RELEASE_PATCH_REPORT_PATH: /tmp/codex-upstream-ci/patch-report.json'
     assert_contains "$workflow" 'CODEX_PATCH_REPORT_JSON: ${{ env.RELEASE_PATCH_REPORT_PATH }}'
@@ -2744,6 +2746,8 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.pacman_arch }}.pkg.tar.zst'
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.gentoo_arch }}.gentoo.tar.zst'
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.release_arch }}.AppImage'
+    assert_contains "$workflow" 'codex-desktop-linux-postmarketos-aarch64.apk'
+    assert_contains "$workflow" 'glibc-runtime/dri/v3d_dri.so'
     assert_contains "$workflow" 'bsdtar -xOf "$pkg_file" .PKGINFO'
     assert_contains "$workflow" 'bsdtar -tf "$pkg_file"'
     assert_not_contains "$workflow" 'pacman -Qip'
@@ -2774,6 +2778,7 @@ test_public_readme_claims_match_release_contract() {
         codex-desktop-linux-aarch64.pkg.tar.zst \
         codex-desktop-linux-amd64.gentoo.tar.zst \
         codex-desktop-linux-arm64.gentoo.tar.zst \
+        codex-desktop-linux-postmarketos-aarch64.apk \
         codex-desktop-linux-x86_64.AppImage \
         codex-desktop-linux-aarch64.AppImage
     do
@@ -2784,6 +2789,7 @@ test_public_readme_claims_match_release_contract() {
     assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.rpm'
     assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.pkg.tar.zst'
     assert_contains "$readme" 'codex-desktop-linux-{amd64,arm64}.gentoo.tar.zst'
+    assert_contains "$readme" 'codex-desktop-linux-postmarketos-aarch64.apk'
     assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.AppImage'
     assert_contains "$release_workflow" 'release_arch: aarch64'
     assert_contains "$release_workflow" 'deb_arch: arm64'
@@ -2814,6 +2820,11 @@ test_public_readme_claims_match_release_contract() {
     assert_contains "$package_common" 'cp "$UPDATER_BINARY_SOURCE" "$root/usr/bin/codex-update-manager"'
     assert_contains "$package_common" 'local update_builder_root="$root/opt/$PACKAGE_NAME/update-builder"'
     assert_contains "$package_common" 'scripts/build-gentoo-bin.sh'
+    assert_contains "$package_common" 'scripts/build-postmarketos.sh'
+    assert_file_exists "$REPO_DIR/scripts/build-postmarketos.sh"
+    assert_file_exists "$REPO_DIR/scripts/stage-postmarketos-runtime.sh"
+    assert_file_exists "$REPO_DIR/packaging/postmarketos/APKBUILD.template"
+    assert_contains "$REPO_DIR/scripts/stage-postmarketos-runtime.sh" 'libX11-xcb.so.1'
     assert_file_exists "$REPO_DIR/packaging/gentoo/codex-desktop-bin.ebuild.template"
     assert_contains "$REPO_DIR/packaging/gentoo/codex-desktop-bin.ebuild.template" "app-editors/codex-desktop-bin"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "/usr/bin/codex-desktop"

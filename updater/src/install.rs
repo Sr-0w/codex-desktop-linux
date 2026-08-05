@@ -24,6 +24,7 @@ const DPKG_QUERY_CANDIDATES: &[&str] = &["/usr/bin/dpkg-query", "/bin/dpkg-query
 const RPM_CANDIDATES: &[&str] = &["/usr/bin/rpm", "/bin/rpm"];
 const ZYPPER_CANDIDATES: &[&str] = &["/usr/bin/zypper", "/bin/zypper"];
 const PACMAN_CANDIDATES: &[&str] = &["/usr/bin/pacman", "/bin/pacman"];
+const APK_CANDIDATES: &[&str] = &["/sbin/apk", "/usr/sbin/apk", "/usr/bin/apk", "/bin/apk"];
 const EMERGE_CANDIDATES: &[&str] = &["/usr/bin/emerge", "/bin/emerge"];
 const PORTAGEQ_CANDIDATES: &[&str] = &["/usr/bin/portageq", "/bin/portageq"];
 const TAR_CANDIDATES: &[&str] = &["/usr/bin/tar", "/bin/tar"];
@@ -46,15 +47,18 @@ pub enum PackageKind {
     Rpm,
     Pacman,
     Gentoo,
+    Apk,
 }
 
 impl PackageKind {
     pub fn detect() -> Self {
         detect_package_kind(PackageDetection {
+            has_apk: program_exists(APK_CANDIDATES, "apk"),
             has_pacman: program_exists(PACMAN_CANDIDATES, "pacman"),
             has_emerge: program_exists(EMERGE_CANDIDATES, "emerge"),
             has_dpkg: program_exists(DPKG_CANDIDATES, "dpkg"),
             has_rpm: program_exists(RPM_CANDIDATES, "rpm"),
+            apk_installed: installed_apk_version() != "unknown",
             pacman_installed: installed_pacman_version() != "unknown",
             gentoo_installed: installed_gentoo_version() != "unknown",
             deb_installed: installed_deb_version() != "unknown",
@@ -76,6 +80,7 @@ impl PackageKind {
         }
 
         match path.extension().and_then(|e| e.to_str()) {
+            Some("apk") => Self::Apk,
             Some("rpm") => Self::Rpm,
             _ => Self::Deb,
         }
@@ -84,10 +89,12 @@ impl PackageKind {
 
 #[derive(Default)]
 struct PackageDetection {
+    has_apk: bool,
     has_pacman: bool,
     has_emerge: bool,
     has_dpkg: bool,
     has_rpm: bool,
+    apk_installed: bool,
     pacman_installed: bool,
     gentoo_installed: bool,
     deb_installed: bool,
@@ -98,6 +105,9 @@ struct PackageDetection {
 fn detect_package_kind(detection: PackageDetection) -> PackageKind {
     if let Some((id, id_like)) = detection.os_release {
         let fields = [id.as_str(), id_like.as_str()];
+        if os_release_matches(&fields, &["postmarketos", "alpine"]) {
+            return PackageKind::Apk;
+        }
         if os_release_matches(&fields, &["gentoo"]) {
             return PackageKind::Gentoo;
         }
@@ -138,6 +148,9 @@ fn detect_package_kind(detection: PackageDetection) -> PackageKind {
         }
     }
 
+    if detection.apk_installed {
+        return PackageKind::Apk;
+    }
     if detection.pacman_installed {
         return PackageKind::Pacman;
     }
@@ -151,7 +164,9 @@ fn detect_package_kind(detection: PackageDetection) -> PackageKind {
         return PackageKind::Rpm;
     }
 
-    if detection.has_dpkg {
+    if detection.has_apk {
+        PackageKind::Apk
+    } else if detection.has_dpkg {
         PackageKind::Deb
     } else if detection.has_rpm {
         PackageKind::Rpm
@@ -199,6 +214,7 @@ pub fn installed_package_version() -> String {
         PackageKind::Rpm => installed_rpm_version(),
         PackageKind::Pacman => installed_pacman_version(),
         PackageKind::Gentoo => installed_gentoo_version(),
+        PackageKind::Apk => installed_apk_version(),
     }
 }
 
@@ -227,6 +243,16 @@ fn installed_pacman_version() -> String {
         .output()
     {
         Ok(output) if output.status.success() => parse_pacman_installed_version(output.stdout),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn installed_apk_version() -> String {
+    match Command::new(program_path(APK_CANDIDATES, "apk"))
+        .args(["info", "-v", "-e", PACKAGE_NAME])
+        .output()
+    {
+        Ok(output) if output.status.success() => parse_apk_installed_version(output.stdout),
         _ => "unknown".to_string(),
     }
 }
@@ -299,6 +325,16 @@ pub fn install_pacman(path: &Path) -> Result<()> {
     run_install(&mut command).context("pacman -U failed")
 }
 
+/// Installs a prebuilt postmarketOS/Alpine package on the local machine.
+pub fn install_apk(path: &Path) -> Result<()> {
+    let stable = stable_validated_package(path)
+        .with_context(|| format!("Failed to stabilize APK package {}", path.display()))?;
+    ensure_upgrade_path_apk(stable.path())?;
+
+    let mut command = apk_install_command(stable.path());
+    run_install(&mut command).context("apk add failed")
+}
+
 /// Installs a rebuilt Gentoo overlay artifact on the local machine.
 pub fn install_gentoo(path: &Path) -> Result<()> {
     let stable = stable_validated_package(path)
@@ -315,6 +351,7 @@ pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
         PackageKind::Deb => "install-deb",
         PackageKind::Pacman => "install-pacman",
         PackageKind::Gentoo => "install-gentoo",
+        PackageKind::Apk => "install-apk",
     };
     let mut command = Command::new("pkexec");
     command
@@ -410,6 +447,10 @@ pub(crate) fn ensure_codex_package(path: &Path) -> Result<()> {
             ensure_gentoo_package(path)?;
             Ok(())
         }
+        PackageKind::Apk => {
+            let metadata = apk_package_metadata(path)?;
+            ensure_package_name(&metadata.name, path)
+        }
     }
 }
 
@@ -469,6 +510,7 @@ fn stable_file_name(kind: PackageKind, path: &Path) -> Result<String> {
         PackageKind::Deb => Ok("codex-desktop.deb".to_string()),
         PackageKind::Rpm => Ok("codex-desktop.rpm".to_string()),
         PackageKind::Gentoo => Ok("codex-desktop.gentoo.tar.zst".to_string()),
+        PackageKind::Apk => Ok("codex-desktop.apk".to_string()),
         PackageKind::Pacman => path
             .file_name()
             .with_context(|| format!("Pacman package path has no file name: {}", path.display()))
@@ -516,6 +558,16 @@ fn parse_pacman_installed_version(stdout: Vec<u8>) -> String {
     }
 }
 
+fn parse_apk_installed_version(stdout: Vec<u8>) -> String {
+    let value = String::from_utf8_lossy(&stdout).trim().to_string();
+    let prefix = format!("{PACKAGE_NAME}-");
+    value
+        .strip_prefix(&prefix)
+        .filter(|version| !version.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
 fn ensure_upgrade_path(path: &Path) -> Result<()> {
     let installed = installed_package_version();
     if installed == "unknown" {
@@ -540,6 +592,20 @@ fn ensure_upgrade_path_pacman(path: &Path) -> Result<()> {
     anyhow::ensure!(
         is_version_newer_pacman(&candidate, &installed)?,
         "Refusing to install non-newer package version {candidate} over installed version {installed}"
+    );
+    Ok(())
+}
+
+fn ensure_upgrade_path_apk(path: &Path) -> Result<()> {
+    let installed = installed_apk_version();
+    if installed == "unknown" {
+        return Ok(());
+    }
+
+    let candidate = apk_package_version(path)?;
+    anyhow::ensure!(
+        is_version_newer_apk(&candidate, &installed)?,
+        "Refusing to install non-newer APK version {candidate} over installed version {installed}"
     );
     Ok(())
 }
@@ -628,6 +694,14 @@ fn pacman_install_command(path: &Path) -> Command {
     command
 }
 
+fn apk_install_command(path: &Path) -> Command {
+    let mut command = Command::new(program_path(APK_CANDIDATES, "apk"));
+    command
+        .args(["add", "--allow-untrusted", "--upgrade", "--"])
+        .arg(path.as_os_str());
+    command
+}
+
 fn updater_binary_for_privileged_install(current_exe: &Path) -> PathBuf {
     let installed = PathBuf::from(INSTALLED_UPDATER_BINARY);
     if installed.is_file() {
@@ -707,6 +781,60 @@ fn pacman_package_name(path: &Path) -> Result<String> {
     package_metadata_field(output, "pacman", "package name", path)
 }
 
+#[cfg(test)]
+fn apk_package_name(path: &Path) -> Result<String> {
+    Ok(apk_package_metadata(path)?.name)
+}
+
+pub(crate) fn apk_package_version(path: &Path) -> Result<String> {
+    Ok(apk_package_metadata(path)?.version)
+}
+
+struct ApkPackageMetadata {
+    name: String,
+    version: String,
+}
+
+fn apk_package_metadata(path: &Path) -> Result<ApkPackageMetadata> {
+    let output = apk_metadata_command(path)
+        .output()
+        .with_context(|| format!("Failed to inspect APK metadata in {}", path.display()))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "tar could not read .PKGINFO from {}",
+        path.display()
+    );
+    let metadata = String::from_utf8(output.stdout).context("APK .PKGINFO is not UTF-8")?;
+    let field = |name: &str| {
+        let prefix = format!("{name} = ");
+        metadata
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .with_context(|| format!("APK {} is missing {name}", path.display()))
+    };
+    Ok(ApkPackageMetadata {
+        name: field("pkgname")?,
+        version: field("pkgver")?,
+    })
+}
+
+fn apk_metadata_command(path: &Path) -> Command {
+    let mut command = Command::new(program_path(TAR_CANDIDATES, "tar"));
+    command
+        .args([
+            "--warning=no-unknown-keyword",
+            "--ignore-zeros",
+            "--occurrence=1",
+            "-xOf",
+        ])
+        .arg(path)
+        .arg(".PKGINFO");
+    command
+}
+
 fn dpkg_deb_field_command(path: &Path, field: &str) -> Command {
     let mut command = Command::new(program_path(DPKG_DEB_CANDIDATES, "dpkg-deb"));
     command.arg("-f").arg("--").arg(path).arg(field);
@@ -760,6 +888,19 @@ fn is_version_newer(candidate: &str, installed: &str) -> Result<bool> {
         .status()
         .context("Failed to compare Debian package versions")?;
     Ok(status.success())
+}
+
+fn is_version_newer_apk(candidate: &str, installed: &str) -> Result<bool> {
+    let output = Command::new(program_path(APK_CANDIDATES, "apk"))
+        .args(["version", "--test", candidate, installed])
+        .output()
+        .context("Failed to compare APK package versions")?;
+    anyhow::ensure!(output.status.success(), "apk version comparison failed");
+    Ok(String::from_utf8_lossy(&output.stdout).trim() == ">")
+}
+
+pub(crate) fn apk_version_is_newer(candidate: &str, installed: &str) -> Result<bool> {
+    is_version_newer_apk(candidate, installed)
 }
 
 fn pacman_package_version(path: &Path) -> Result<String> {
@@ -1291,6 +1432,10 @@ mod tests {
             command_args(pacman_install_command(Path::new("-evil.pkg.tar.zst"))),
             vec!["-U", "--noconfirm", "--", "-evil.pkg.tar.zst"]
         );
+        assert_eq!(
+            command_args(apk_install_command(Path::new("-evil.apk"))),
+            vec!["add", "--allow-untrusted", "--upgrade", "--", "-evil.apk"]
+        );
     }
 
     #[test]
@@ -1307,6 +1452,17 @@ mod tests {
             command_args(pacman_query_name_command(Path::new("-evil.pkg.tar.zst"))),
             vec!["-Qqp", "--", "-evil.pkg.tar.zst"]
         );
+        assert_eq!(
+            command_args(apk_metadata_command(Path::new("-evil.apk"))),
+            vec![
+                "--warning=no-unknown-keyword",
+                "--ignore-zeros",
+                "--occurrence=1",
+                "-xOf",
+                "-evil.apk",
+                ".PKGINFO"
+            ]
+        );
     }
 
     #[test]
@@ -1322,6 +1478,10 @@ mod tests {
         assert_eq!(
             stable_file_name(PackageKind::Gentoo, Path::new("-evil.gentoo.tar.zst"))?,
             "codex-desktop.gentoo.tar.zst"
+        );
+        assert_eq!(
+            stable_file_name(PackageKind::Apk, Path::new("-evil.apk"))?,
+            "codex-desktop.apk"
         );
         assert_eq!(
             stable_file_name(
@@ -1353,6 +1513,14 @@ mod tests {
         assert_eq!(
             PackageKind::from_path(Path::new("/tmp/codex.deb")),
             PackageKind::Deb
+        );
+    }
+
+    #[test]
+    fn package_kind_from_path_detects_apk() {
+        assert_eq!(
+            PackageKind::from_path(Path::new("/tmp/codex.apk")),
+            PackageKind::Apk
         );
     }
 
@@ -1426,6 +1594,19 @@ mod tests {
                 ..Default::default()
             }),
             PackageKind::Gentoo
+        );
+    }
+
+    #[test]
+    fn detection_prefers_postmarketos_os_release() {
+        assert_eq!(
+            detect_package_kind(PackageDetection {
+                has_apk: true,
+                has_dpkg: true,
+                os_release: Some(("postmarketos".to_string(), "alpine".to_string())),
+                ..Default::default()
+            }),
+            PackageKind::Apk
         );
     }
 
@@ -1538,6 +1719,28 @@ mod tests {
     }
 
     #[test]
+    fn builds_pkexec_command_for_privileged_apk_install() {
+        let command = pkexec_command(
+            Path::new("/usr/bin/codex-update-manager"),
+            Path::new("/tmp/update.apk"),
+        );
+        let args: Vec<_> = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "--disable-internal-agent",
+                "/usr/bin/codex-update-manager",
+                "install-apk",
+                "--path",
+                "/tmp/update.apk"
+            ]
+        );
+    }
+
+    #[test]
     fn compares_debian_versions_using_dpkg_rules() -> Result<()> {
         if !program_exists(DPKG_CANDIDATES, "dpkg") {
             return Ok(());
@@ -1607,6 +1810,39 @@ mod tests {
             parse_pacman_installed_version(b"codex-desktop 2026.04.02.120000-1\n".to_vec()),
             "2026.04.02.120000-1"
         );
+    }
+
+    #[test]
+    fn parses_apk_installed_version_output() {
+        assert_eq!(
+            parse_apk_installed_version(b"codex-desktop-2026.04.02.120000-r0\n".to_vec()),
+            "2026.04.02.120000-r0"
+        );
+        assert_eq!(parse_apk_installed_version(Vec::new()), "unknown");
+    }
+
+    #[test]
+    fn reads_apk_package_metadata() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let metadata = temp.path().join(".PKGINFO");
+        let package = temp.path().join("codex-desktop.apk");
+        std::fs::write(
+            &metadata,
+            "pkgname = codex-desktop\npkgver = 2026.04.02.120000-r0\narch = aarch64\n",
+        )?;
+        let status = Command::new("tar")
+            .args(["-cf"])
+            .arg(&package)
+            .arg("-C")
+            .arg(temp.path())
+            .arg(".PKGINFO")
+            .status()?;
+        assert!(status.success());
+
+        assert_eq!(apk_package_name(&package)?, "codex-desktop");
+        assert_eq!(apk_package_version(&package)?, "2026.04.02.120000-r0");
+        ensure_codex_package(&package)?;
+        Ok(())
     }
 
     #[test]

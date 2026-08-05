@@ -23,6 +23,9 @@ DEB_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)_*.deb
 RPM_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-*.rpm
 PACMAN_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-[0-9]*.pkg.tar.*
 GENTOO_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-[0-9]*.gentoo.tar.zst
+APK_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-[0-9]*-aarch64.apk
+POSTMARKETOS_RUST_TARGET ?= aarch64-unknown-linux-musl
+UPDATER_BINARY_SOURCE ?= $(CURDIR)/target/$(POSTMARKETOS_RUST_TARGET)/release/codex-update-manager
 .DEFAULT_GOAL := help
 
 NATIVE_PKG_FORMAT_CMD = format=""; \
@@ -38,7 +41,9 @@ os_release_token_match() { \
 	return 1; \
 }; \
 if [ -r /etc/os-release ]; then . /etc/os-release; \
-	if os_release_token_match gentoo; then \
+	if os_release_token_match postmarketos alpine; then \
+		format="apk"; \
+	elif os_release_token_match gentoo; then \
 		format="gentoo"; \
 	elif os_release_token_match arch archlinux manjaro endeavouros artix; then \
 		format="pacman"; \
@@ -49,7 +54,9 @@ if [ -r /etc/os-release ]; then . /etc/os-release; \
 	fi; \
 fi; \
 if [ -z "$$format" ]; then \
-	if command -v emerge >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
+	if command -v apk >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
+		format="apk"; \
+	elif command -v emerge >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
 		format="gentoo"; \
 	elif command -v pacman >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
 		format="pacman"; \
@@ -65,7 +72,7 @@ if [ -z "$$format" ]; then \
 fi; \
 printf '%s\n' "$$format"
 
-.PHONY: help check test build-updater maybe-build-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman gentoo appimage package install service-enable service-status clean-dist clean-state
+.PHONY: help check test build-updater maybe-build-updater build-postmarketos-updater maybe-build-postmarketos-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman gentoo postmarketos appimage package install service-enable service-status clean-dist clean-state
 
 help:
 	@printf '\nCodex Desktop Linux Make Targets\n\n'
@@ -90,6 +97,7 @@ help:
 	@printf '  %-18s %s\n' "make rpm" "Build the RPM package into dist/ (Fedora/openSUSE)"
 	@printf '  %-18s %s\n' "make pacman" "Build the pacman package into dist/ (Arch)"
 	@printf '  %-18s %s\n' "make gentoo" "Build the Gentoo overlay package into dist/ (Portage)"
+	@printf '  %-18s %s\n' "make postmarketos" "Build the aarch64 APK into dist/ (Plasma Mobile)"
 	@printf '  %-18s %s\n' "make appimage" "Build the AppImage into dist/ (local self-build)"
 	@printf '  %-18s %s\n' "make package" "Build native package (auto-detects deb, rpm, pacman, or Gentoo)"
 	@printf '  %-18s %s\n' "make install" "Install the latest generated native package"
@@ -133,6 +141,7 @@ help:
 	@printf '  %s\n' "MAX_BUILD_THREADS=8 make rpm"
 	@printf '  %s\n' "make pacman PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
 	@printf '  %s\n' "make gentoo PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
+	@printf '  %s\n' "make postmarketos PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
 	@printf '  %s\n' "make appimage PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
 	@printf '  %s\n' "make install"
 	@printf '  %s\n\n' "make service-enable"
@@ -155,6 +164,18 @@ maybe-build-updater:
 			echo "[make] Skipping codex-update-manager build (PACKAGE_WITH_UPDATER=0)" ;; \
 		*) \
 			$(MAKE) build-updater ;; \
+	esac
+
+build-postmarketos-updater:
+	@echo "[make] Building codex-update-manager for $(POSTMARKETOS_RUST_TARGET)"
+	cargo build $(CARGO_JOBS_ARG) --release --target "$(POSTMARKETOS_RUST_TARGET)" -p codex-update-manager
+
+maybe-build-postmarketos-updater:
+	@case "$(PACKAGE_WITH_UPDATER)" in \
+		0|false|False|FALSE|no|No|NO|off|Off|OFF) \
+			echo "[make] Skipping postmarketOS updater build (PACKAGE_WITH_UPDATER=0)" ;; \
+		*) \
+			$(MAKE) build-postmarketos-updater ;; \
 	esac
 
 update: rebuild-install
@@ -253,23 +274,43 @@ gentoo: maybe-build-updater
 	@echo "[make] Building Gentoo overlay package"
 	MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-gentoo-bin.sh
 
+postmarketos: maybe-build-postmarketos-updater
+	@echo "[make] Building postmarketOS aarch64 package"
+	PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" UPDATER_BINARY_SOURCE="$(UPDATER_BINARY_SOURCE)" ./scripts/build-postmarketos.sh
+
 appimage:
 	@echo "[make] Building AppImage"
 	MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" ./scripts/build-appimage.sh
 
-package: maybe-build-updater
+package:
 	@echo "[make] Building native package (auto-detecting distro)"
-	@format="$$( $(NATIVE_PKG_FORMAT_CMD) )"; \
-	if [ "$$format" = "gentoo" ]; then \
+	@maybe_build_updater() { \
+		case "$(PACKAGE_WITH_UPDATER)" in \
+			0|false|False|FALSE|no|No|NO|off|Off|OFF) \
+				echo "[make] Skipping codex-update-manager build (PACKAGE_WITH_UPDATER=0)" ;; \
+			*) \
+				echo "[make] Building codex-update-manager (release)"; \
+				cargo build $(CARGO_JOBS_ARG) --release -p codex-update-manager ;; \
+		esac; \
+	}; \
+	format="$$( $(NATIVE_PKG_FORMAT_CMD) )"; \
+	if [ "$$format" = "apk" ]; then \
+		echo "[make] postmarketOS APKs require an aarch64 glibc build host; use 'make postmarketos' there or install a released APK." >&2; \
+		exit 1; \
+	elif [ "$$format" = "gentoo" ]; then \
+		maybe_build_updater; \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-gentoo-bin.sh; \
 	elif [ "$$format" = "pacman" ]; then \
+		maybe_build_updater; \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-pacman.sh; \
 	elif [ "$$format" = "rpm" ]; then \
+		maybe_build_updater; \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" RPM_BINARY_PAYLOAD="$(RPM_BINARY_PAYLOAD)" ./scripts/build-rpm.sh; \
 	elif [ "$$format" = "deb" ]; then \
+		maybe_build_updater; \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-deb.sh; \
 	else \
-		echo "[make] No supported packaging tool found. Install dpkg-dev (Debian), rpm-build (Fedora), pacman (Arch), or Portage (Gentoo)." >&2; \
+		echo "[make] No supported packaging tool found. Install apk/abuild, dpkg-dev, rpm-build, pacman, or Portage." >&2; \
 		exit 1; \
 	fi
 
@@ -283,7 +324,22 @@ install:
 		printf '%s\n' "$$matches" | sort -V | tail -n 1; \
 	}; \
 	format="$$( $(NATIVE_PKG_FORMAT_CMD) )"; \
-	if [ "$$format" = "gentoo" ]; then \
+	if [ "$$format" = "apk" ]; then \
+		apk_file="$${APK:-$$(latest_matching_file "$(APK_GLOB)")}"; \
+		if [ -z "$$apk_file" ]; then \
+			echo "[make] No postmarketOS APK found. Run 'make postmarketos' first." >&2; exit 1; \
+		fi; \
+		echo "[make] Installing $$apk_file"; \
+		if [ "$$(id -u)" -eq 0 ]; then \
+			apk add --allow-untrusted --upgrade -- "$$apk_file"; \
+		elif command -v doas >/dev/null 2>&1; then \
+			doas apk add --allow-untrusted --upgrade -- "$$apk_file"; \
+		elif command -v sudo >/dev/null 2>&1; then \
+			sudo apk add --allow-untrusted --upgrade -- "$$apk_file"; \
+		else \
+			echo "[make] Installing the APK requires root, doas, or sudo." >&2; exit 1; \
+		fi; \
+	elif [ "$$format" = "gentoo" ]; then \
 		gentoo="$${GENTOO:-$$(latest_matching_file "$(GENTOO_GLOB)")}"; \
 		if [ -z "$$gentoo" ]; then \
 			echo "[make] No Gentoo overlay artifact found. Run 'make gentoo' first." >&2; exit 1; \
@@ -330,7 +386,7 @@ install:
 		echo "[make] Installing $$deb"; \
 		sudo dpkg -i "$$deb"; \
 	else \
-		echo "[make] No supported package manager found (dpkg, rpm, zypper, or pacman)." >&2; exit 1; \
+		echo "[make] No supported package manager found (apk, dpkg, rpm, zypper, or pacman)." >&2; exit 1; \
 	fi
 
 service-enable:

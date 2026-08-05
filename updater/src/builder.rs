@@ -46,7 +46,7 @@ const REQUIRED_BUNDLE_FILES: [(&str, &str); 21] = [
     ("assets/codex-linux.png", "assets/codex-linux.png"),
     ("linux-features", "linux-features"),
 ];
-const OPTIONAL_BUNDLE_FILES: [(&str, &str); 5] = [
+const OPTIONAL_BUNDLE_FILES: [(&str, &str); 8] = [
     ("CHANGELOG.md", "CHANGELOG.md"),
     (
         ".codex-linux/source-info.json",
@@ -54,6 +54,15 @@ const OPTIONAL_BUNDLE_FILES: [(&str, &str); 5] = [
     ),
     ("scripts/build-rpm.sh", "scripts/build-rpm.sh"),
     ("scripts/build-pacman.sh", "scripts/build-pacman.sh"),
+    (
+        "scripts/build-postmarketos.sh",
+        "scripts/build-postmarketos.sh",
+    ),
+    (
+        "scripts/stage-postmarketos-runtime.sh",
+        "scripts/stage-postmarketos-runtime.sh",
+    ),
+    ("packaging/postmarketos", "packaging/postmarketos"),
     (
         "scripts/rebuild-candidate.sh",
         "scripts/rebuild-candidate.sh",
@@ -237,6 +246,7 @@ fn package_build_script(bundle_dir: &Path) -> PathBuf {
         PackageKind::Rpm => bundle_dir.join("scripts/build-rpm.sh"),
         PackageKind::Pacman => bundle_dir.join("scripts/build-pacman.sh"),
         PackageKind::Gentoo => bundle_dir.join("scripts/build-gentoo-bin.sh"),
+        PackageKind::Apk => bundle_dir.join("scripts/build-postmarketos.sh"),
         PackageKind::Deb => bundle_dir.join("scripts/build-deb.sh"),
     }
 }
@@ -334,7 +344,7 @@ fn find_package_in(dist_dir: &Path) -> Result<PathBuf> {
     }
 
     anyhow::bail!(
-        "No native package (.deb, .rpm, .pkg.tar.*, or .gentoo.tar.zst) found in {}",
+        "No native package (.deb, .rpm, .apk, .pkg.tar.*, or .gentoo.tar.zst) found in {}",
         dist_dir.display()
     )
 }
@@ -347,6 +357,7 @@ fn is_native_package_file(path: &Path) -> bool {
         .to_ascii_lowercase();
     name.ends_with(".deb")
         || name.ends_with(".rpm")
+        || name.ends_with(".apk")
         || name.ends_with(GENTOO_PACKAGE_SUFFIX)
         || PACMAN_PACKAGE_SUFFIXES
             .iter()
@@ -931,7 +942,7 @@ fi
         let error = find_package_in(temp.path()).expect_err("package discovery should fail");
         assert!(error
             .to_string()
-            .contains("No native package (.deb, .rpm, .pkg.tar.*, or .gentoo.tar.zst)"));
+            .contains("No native package (.deb, .rpm, .apk, .pkg.tar.*, or .gentoo.tar.zst)"));
         Ok(())
     }
 
@@ -945,6 +956,18 @@ fi
 
         let found = find_package_in(temp.path())?;
         assert_eq!(found, pkg_path);
+        Ok(())
+    }
+
+    #[test]
+    fn finds_apk_package_in_dist_dir() -> Result<()> {
+        let temp = tempdir()?;
+        let apk_path = temp
+            .path()
+            .join("codex-desktop-2026.08.05.120000-aarch64.apk");
+        fs::write(&apk_path, b"apk")?;
+
+        assert_eq!(find_package_in(temp.path())?, apk_path);
         Ok(())
     }
 

@@ -14,6 +14,7 @@ const DPKG_CANDIDATES: &[&str] = &["/usr/bin/dpkg", "/bin/dpkg"];
 const RPM_CANDIDATES: &[&str] = &["/usr/bin/rpm", "/bin/rpm"];
 const ZYPPER_CANDIDATES: &[&str] = &["/usr/bin/zypper", "/bin/zypper"];
 const PACMAN_CANDIDATES: &[&str] = &["/usr/bin/pacman", "/bin/pacman"];
+const APK_CANDIDATES: &[&str] = &["/sbin/apk", "/usr/sbin/apk", "/usr/bin/apk", "/bin/apk"];
 
 pub fn install_deb(path: &Path) -> Result<()> {
     let stable = stable_validated_package(path).with_context(|| {
@@ -80,6 +81,18 @@ pub fn install_gentoo(path: &Path) -> Result<()> {
     merge_gentoo_package(stable.path()).context("Gentoo rollback install failed")
 }
 
+pub fn install_apk(path: &Path) -> Result<()> {
+    let stable = stable_validated_package(path).with_context(|| {
+        format!(
+            "Failed to stabilize APK rollback package {}",
+            path.display()
+        )
+    })?;
+
+    let mut command = apk_command(stable.path());
+    run_install(&mut command).context("apk rollback install failed")
+}
+
 pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
     let updater_binary = updater_binary_for_privileged_install(current_exe);
     let subcommand = match PackageKind::from_path(package_path) {
@@ -87,6 +100,7 @@ pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
         PackageKind::Deb => "install-rollback-deb",
         PackageKind::Pacman => "install-rollback-pacman",
         PackageKind::Gentoo => "install-rollback-gentoo",
+        PackageKind::Apk => "install-rollback-apk",
     };
     let mut command = Command::new("pkexec");
     command
@@ -159,6 +173,14 @@ fn pacman_command(path: &Path) -> Command {
     let mut command = Command::new(program_path(PACMAN_CANDIDATES, "pacman"));
     command
         .args(["-U", "--noconfirm", "--"])
+        .arg(path.as_os_str());
+    command
+}
+
+fn apk_command(path: &Path) -> Command {
+    let mut command = Command::new(program_path(APK_CANDIDATES, "apk"));
+    command
+        .args(["add", "--allow-untrusted", "--upgrade", "--"])
         .arg(path.as_os_str());
     command
 }
