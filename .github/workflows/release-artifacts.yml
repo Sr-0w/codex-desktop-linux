@@ -37,6 +37,8 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   UPSTREAM_DMG_PATH: /tmp/codex-upstream-ci/Codex.dmg
+  RELEASE_DMG_METADATA_PATH: /tmp/codex-upstream-ci/upstream-dmg-metadata.json
+  RELEASE_PATCH_REPORT_PATH: /tmp/codex-upstream-ci/patch-report.json
   DMG_CACHE_SCHEMA_VERSION: v1
 
 jobs:
@@ -206,7 +208,7 @@ jobs:
           dmg_size_bytes="$(stat -c '%s' "$UPSTREAM_DMG_PATH")"
           tested_at_utc="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
-          cat > upstream-dmg-metadata.json <<JSON
+          cat > "$RELEASE_DMG_METADATA_PATH" <<JSON
           {
             "url": "$UPSTREAM_DMG_URL",
             "path": "$UPSTREAM_DMG_PATH",
@@ -222,13 +224,13 @@ jobs:
 
       - name: Build app
         env:
-          CODEX_PATCH_REPORT_JSON: ${{ github.workspace }}/patch-report.json
+          CODEX_PATCH_REPORT_JSON: ${{ env.RELEASE_PATCH_REPORT_PATH }}
           CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL: ${{ matrix.release_arch == 'aarch64' && vars.CODEX_BROWSER_USE_NODE_REPL_ARM64_URL || '' }}
           CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256: ${{ matrix.release_arch == 'aarch64' && vars.CODEX_BROWSER_USE_NODE_REPL_ARM64_SHA256 || '' }}
         run: ./install.sh "$UPSTREAM_DMG_PATH"
 
       - name: Validate required patches
-        run: node scripts/ci/validate-patch-report.js patch-report.json --profile upstream-build
+        run: node scripts/ci/validate-patch-report.js "$RELEASE_PATCH_REPORT_PATH" --profile upstream-build
 
       - name: Validate generated app architecture
         run: scripts/ci/validate-app-architecture.sh codex-app "${{ matrix.release_arch }}"
@@ -247,8 +249,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-metadata
-          cp upstream-dmg-metadata.json "release-metadata/upstream-dmg-metadata-${{ matrix.release_arch }}.json"
-          cp patch-report.json "release-metadata/patch-report-${{ matrix.release_arch }}.json"
+          cp "$RELEASE_DMG_METADATA_PATH" "release-metadata/upstream-dmg-metadata-${{ matrix.release_arch }}.json"
+          cp "$RELEASE_PATCH_REPORT_PATH" "release-metadata/patch-report-${{ matrix.release_arch }}.json"
           cp codex-app/.codex-linux/build-info.json "release-metadata/build-info-${{ matrix.release_arch }}.json"
           cp codex-app/.codex-linux/patch-report.json "release-metadata/installed-patch-report-${{ matrix.release_arch }}.json"
 
@@ -687,6 +689,7 @@ jobs:
             gh release edit "$RELEASE_TAG" \
               --title "$RELEASE_NAME" \
               --notes-file release-notes.md \
+              --target "$GITHUB_SHA" \
               --draft="$RELEASE_DRAFT" \
               --prerelease="$RELEASE_PRERELEASE"
             gh release upload "$RELEASE_TAG" "${files[@]}" --clobber

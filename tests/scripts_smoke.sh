@@ -2734,6 +2734,9 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'pacman_arch: aarch64'
     assert_contains "$workflow" 'gentoo_arch: arm64'
     assert_contains "$workflow" 'appimagetool_arch: aarch64'
+    assert_contains "$workflow" 'RELEASE_DMG_METADATA_PATH: /tmp/codex-upstream-ci/upstream-dmg-metadata.json'
+    assert_contains "$workflow" 'RELEASE_PATCH_REPORT_PATH: /tmp/codex-upstream-ci/patch-report.json'
+    assert_contains "$workflow" 'CODEX_PATCH_REPORT_JSON: ${{ env.RELEASE_PATCH_REPORT_PATH }}'
     assert_contains "$workflow" 'scripts/ci/validate-app-architecture.sh codex-app'
     assert_contains "$workflow" 'codex-app-build-${{ matrix.release_arch }}'
     assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.deb_arch }}.deb'
@@ -2744,6 +2747,7 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     assert_contains "$workflow" 'bsdtar -xOf "$pkg_file" .PKGINFO'
     assert_contains "$workflow" 'bsdtar -tf "$pkg_file"'
     assert_not_contains "$workflow" 'pacman -Qip'
+    assert_occurrence_count "$workflow" '--target "\$GITHUB_SHA"' "2"
     assert_contains "$workflow" 'path: release-assets'
     assert_contains "$workflow" 'Release asset filenames are intentionally short'
 }
