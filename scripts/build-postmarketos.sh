@@ -122,6 +122,8 @@ run_abuild_bwrap() {
     local rootfs="$2"
 
     [ -x "$rootfs/usr/bin/abuild" ] || error "Alpine rootfs does not contain abuild: $rootfs"
+    # The inner shell expands the mounted-build variables.
+    # shellcheck disable=SC2016
     bwrap \
         --unshare-user \
         --uid 0 \
@@ -134,8 +136,6 @@ run_abuild_bwrap() {
         --setenv BUILD_ROOT "$build_root" \
         --setenv PATH /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         --chdir "$build_root" \
-        # The inner shell expands the mounted-build variables.
-        # shellcheck disable=SC2016
         /bin/sh -ec '
             mkdir -p "$HOME" "$BUILD_ROOT/packages"
             abuild-keygen -a -n >/dev/null
@@ -163,17 +163,18 @@ run_abuild_container() {
     uid="$(id -u)"
     gid="$(id -g)"
 
+    # The container shell expands these injected environment variables.
+    # shellcheck disable=SC2016
     "$engine" run --rm \
         -e BUILD_ROOT="$build_root" \
         -e BUILDER_UID="$uid" \
         -e BUILDER_GID="$gid" \
+        -e PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
         -v "$build_root:$build_root" \
         -w "$build_root" \
         "$POSTMARKETOS_ABUILD_IMAGE" \
-        # The container shell expands these injected environment variables.
-        # shellcheck disable=SC2016
         /bin/sh -euxc '
-            apk add --no-cache alpine-sdk
+            /sbin/apk add --no-cache alpine-sdk
             addgroup -g "$BUILDER_GID" codex-build
             adduser -D -u "$BUILDER_UID" -G codex-build codex-build
             chown -R "$BUILDER_UID:$BUILDER_GID" "$BUILD_ROOT"
