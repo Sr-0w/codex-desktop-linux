@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Native ARM64 release builds for Debian/Ubuntu/Raspberry Pi OS, RPM-based
+  distributions, Arch Linux ARM, Gentoo, AppImage, and Nix. GitHub Actions now
+  builds the complete app independently on `ubuntu-24.04-arm`, validates the
+  ELF architecture of Electron, Node.js, native addons, and bundled helpers,
+  and publishes architecture-specific assets and checksums. AppImage updates
+  select only a matching architecture, and Gentoo bundles reject installation
+  on a mismatched host. A verified ARM64 Browser Use `node_repl` archive can be
+  injected through build variables when one becomes available.
+
 ## [0.8.4] - 2026-06-20
 
 ### Added
@@ -70,13 +81,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The Chromium/Chrome side panel now speaks the current native-host protocol v2
+  on Linux, starts and supervises its own Codex app-server behind an
+  origin-gated loopback WebSocket proxy, and receives the managed Node,
+  `node_repl`, browser-client, and trust-hash runtime configuration expected by
+  current extensions. The proxy accepts the installed extension origin while
+  preventing Codex's browser-origin rejection from breaking the side panel.
+  Launcher manifest sync accepts both upstream `extensionId` and `extensionIds`
+  metadata shapes, and tab-context attachments use private, size-limited
+  temporary files with automatic cleanup.
+- Browser and Chrome automation clients no longer import the forbidden
+  `node:process` module in the secured JavaScript bridge, and newer clients now
+  tolerate runtimes that do not expose the optional after-submit hook.
 - `codex-update-manager` no longer depends on the `fs4` crate for updater check
   serialization. The updater now uses `std::fs::File::try_lock`, preserves the
   existing non-blocking `check.lock` behavior when another check is active, and
   adds regression coverage for `WouldBlock` lock contention semantics.
 - The avatar overlay is focusable on Linux so inline pet reply inputs can accept
-  keyboard input after being clicked, while still staying above the main Codex
-  window as an overlay.
+  keyboard input after being clicked. The KDE native-window feature gives the
+  pet a stable Linux title, enforces borderless always-on-top behavior through
+  both Electron and a narrowly scoped KWin session guard, and leaves the main
+  window on native Plasma decorations.
+- The Linux tray keeps working with upstream Electron bundles whose `Tray`
+  implementation does not provide OpenAI's custom readiness methods.
+- Cold starts replace an orphaned local webview server only after the launcher
+  lock is held, preventing a departing launcher from killing the new app's
+  server and leaving a white window.
+- The Linux package update bridge now implements the current upstream update
+  manager interface, including download progress, relaunch notice, app brand,
+  Sparkle query-parameter, and launch-latch methods.
 - Plugin marketplace browsing now preserves upstream's `remote_plugin`
   feature sync on Linux, so current app servers can load the remote OpenAI
   curated catalog instead of falling back to only locally installed plugins.

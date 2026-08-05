@@ -63,9 +63,22 @@ fn scan_proc_for_executable(expected: &Path) -> Result<bool> {
 
 fn process_matches(pid: u32, expected: &Path) -> bool {
     is_process_alive(pid)
+        && !is_electron_helper_process(pid)
         && read_exe_link(pid)
             .map(|path| path == expected)
             .unwrap_or(false)
+}
+
+fn is_electron_helper_process(pid: u32) -> bool {
+    fs::read(Path::new("/proc").join(pid.to_string()).join("cmdline"))
+        .map(|cmdline| cmdline_has_electron_helper_type(&cmdline))
+        .unwrap_or(false)
+}
+
+fn cmdline_has_electron_helper_type(cmdline: &[u8]) -> bool {
+    cmdline
+        .split(|byte| *byte == 0)
+        .any(|argument| argument.starts_with(b"--type="))
 }
 
 fn is_process_alive(pid: u32) -> bool {
@@ -101,5 +114,18 @@ mod tests {
             &config.app_executable_path
         ));
         Ok(())
+    }
+
+    #[test]
+    fn electron_helper_type_is_detected_as_a_distinct_argument() {
+        assert!(cmdline_has_electron_helper_type(
+            b"/opt/codex-desktop/electron\0--type=gpu-process\0--no-sandbox\0"
+        ));
+        assert!(!cmdline_has_electron_helper_type(
+            b"/opt/codex-desktop/electron\0--no-sandbox\0"
+        ));
+        assert!(!cmdline_has_electron_helper_type(
+            b"/opt/codex-desktop/electron\0--note=mentions --type=renderer\0"
+        ));
     }
 }

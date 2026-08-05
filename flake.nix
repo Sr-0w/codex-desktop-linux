@@ -97,6 +97,7 @@
               hash = "sha256-HnAPfz2u95TMRSNeUcEXJmSu1JpOdze4iW3cOYv/TX0=";
             };
           }.${system} or (throw "codex-desktop-linux Nix package is not supported on ${system}");
+        primaryRuntimeNodeArch = electronPlatform.arch;
 
         electronZip = pkgs.fetchurl {
           url = "https://github.com/electron/electron/releases/download/v${electronVersion}/electron-v${electronVersion}-linux-${electronPlatform.arch}.zip";
@@ -308,9 +309,9 @@ codex_nixos_add_runtime_library_dirs() {\
         "$runtime_root/dependencies/python/lib" \\\
         "$runtime_root/dependencies/python/lib/python3.12/site-packages/pillow.libs" \\\
         "$runtime_root/dependencies/python/lib/python3.12/site-packages/numpy.libs" \\\
-        "$runtime_root/dependencies/node/node_modules/@img/sharp-libvips-linux-x64/lib" \\\
-        "$runtime_root/dependencies/node/node_modules/@img/sharp-linux-x64/lib" \\\
-        "$runtime_root/dependencies/node/node_modules/@napi-rs/canvas-linux-x64-gnu"; do\
+        "$runtime_root/dependencies/node/node_modules/@img/sharp-libvips-linux-${primaryRuntimeNodeArch}/lib" \\\
+        "$runtime_root/dependencies/node/node_modules/@img/sharp-linux-${primaryRuntimeNodeArch}/lib" \\\
+        "$runtime_root/dependencies/node/node_modules/@napi-rs/canvas-linux-${primaryRuntimeNodeArch}-gnu"; do\
         if [ -d "$dir" ]; then\
             LD_LIBRARY_PATH="$dir:''${LD_LIBRARY_PATH:-}"\
         fi\

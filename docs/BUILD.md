@@ -51,6 +51,7 @@ Package scripts use the already-generated `codex-app/` directory.
 make deb
 make rpm
 make pacman
+make gentoo
 make appimage
 ```
 

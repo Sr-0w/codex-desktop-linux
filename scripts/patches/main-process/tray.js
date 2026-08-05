@@ -25,9 +25,151 @@ function isTrayFactoryFunction(source, functionName) {
   return body != null && /new [A-Za-z_$][\w$]*\.Tray\(/.test(body);
 }
 
+function findNativeLinuxTrayIconBranch(source) {
+  const branchRegex = /if\(process\.platform===`linux`\)\{/g;
+  let match;
+  while ((match = branchRegex.exec(source)) != null) {
+    const openIndex = match.index + match[0].length - 1;
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex === -1) {
+      continue;
+    }
+
+    const body = source.slice(openIndex + 1, closeIndex);
+    const electronMatch = body.match(
+      /([A-Za-z_$][\w$]*)\.nativeImage\.createFromPath\(/,
+    );
+    if (
+      electronMatch != null &&
+      body.includes("defaultIcon:") &&
+      body.includes("chronicleRunningIcon:null")
+    ) {
+      return {
+        openIndex,
+        closeIndex,
+        electronVar: electronMatch[1],
+      };
+    }
+    branchRegex.lastIndex = closeIndex + 1;
+  }
+  return null;
+}
+
+function hasNativeLinuxTrayFactory(source) {
+  return (
+    findNativeLinuxTrayIconBranch(source) != null &&
+    /new [A-Za-z_$][\w$]*\.Tray\(/.test(source)
+  );
+}
+
+function findNativeLinuxPersistentTrayMenuMethod(source) {
+  const methodRegex =
+    /([A-Za-z_$][\w$]*)\(\)\{process\.platform===`linux`&&this\.tray\.setContextMenu(?:\?\.)?\(([A-Za-z_$][\w$]*)\.Menu\.buildFromTemplate\(this\.getNativeTrayMenuItems\(\)\)\)\}/g;
+  const match = methodRegex.exec(source);
+  return match == null ? null : match[1];
+}
+
+function hasNativeLinuxTrayClickHandler(source, persistentMenuMethod) {
+  if (persistentMenuMethod == null) {
+    return false;
+  }
+
+  return new RegExp(
+    `process\\.platform===\`linux\`\\)\\{[^]{0,800}this\\.tray\\.on\\(\`click\`[^]{0,800}this\\.${escapeRegExp(persistentMenuMethod)}\\(\\);return\\}`,
+  ).test(source);
+}
+
+function findEnclosingClassBounds(source, index) {
+  const searchStart = Math.max(0, index - 100_000);
+  const classRegex = /\bclass(?:\s+[A-Za-z_$][\w$]*)?(?:\s+extends\s+[^{}]{1,200})?\s*\{/g;
+  classRegex.lastIndex = searchStart;
+  const candidates = [];
+  let match;
+  while ((match = classRegex.exec(source)) != null && match.index < index) {
+    candidates.push(match.index + match[0].lastIndexOf("{"));
+  }
+
+  for (let candidateIndex = candidates.length - 1; candidateIndex >= 0; candidateIndex -= 1) {
+    const openIndex = candidates[candidateIndex];
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex > index) {
+      return { openIndex, closeIndex };
+    }
+  }
+  return null;
+}
+
+function findClassMethodBodies(source, classBounds, methodName) {
+  const methodRegex = new RegExp(
+    `(?:async\\s+)?${escapeRegExp(methodName)}\\([^)]*\\)\\{`,
+    "g",
+  );
+  methodRegex.lastIndex = classBounds.openIndex + 1;
+  const bodies = [];
+  let match;
+  while ((match = methodRegex.exec(source)) != null && match.index < classBounds.closeIndex) {
+    const openIndex = match.index + match[0].length - 1;
+    const closeIndex = findMatchingBrace(source, openIndex);
+    if (closeIndex !== -1 && closeIndex <= classBounds.closeIndex) {
+      bodies.push(source.slice(openIndex + 1, closeIndex));
+      methodRegex.lastIndex = closeIndex + 1;
+    }
+  }
+  return bodies;
+}
+
+function findThisMethodCalls(source) {
+  const calls = [];
+  const callRegex = /this\.([A-Za-z_$][\w$]*)(?:\?\.)?\(\)/g;
+  let match;
+  while ((match = callRegex.exec(source)) != null) {
+    calls.push(match[1]);
+  }
+  return calls;
+}
+
+function hasNativeLinuxTrayMenuRefresh(source, persistentMenuMethod) {
+  if (persistentMenuMethod == null) {
+    return false;
+  }
+
+  const messageCaseRegex = /case`tray-menu-threads-changed`:[^]{0,1200}?(?:return|break)/g;
+  let messageCaseMatch;
+  while ((messageCaseMatch = messageCaseRegex.exec(source)) != null) {
+    const messageCase = messageCaseMatch[0];
+    if (messageCase.includes(`this.${persistentMenuMethod}()`)) {
+      return true;
+    }
+
+    const classBounds = findEnclosingClassBounds(source, messageCaseMatch.index);
+    if (classBounds == null) {
+      continue;
+    }
+
+    const pendingMethods = findThisMethodCalls(messageCase);
+    const visitedMethods = new Set();
+    for (let depth = 0; depth < 4 && pendingMethods.length > 0; depth += 1) {
+      const methodsAtDepth = pendingMethods.splice(0);
+      for (const methodName of methodsAtDepth) {
+        if (visitedMethods.has(methodName)) {
+          continue;
+        }
+        visitedMethods.add(methodName);
+        for (const methodBody of findClassMethodBodies(source, classBounds, methodName)) {
+          if (methodBody.includes(`this.${persistentMenuMethod}()`)) {
+            return true;
+          }
+          pendingMethods.push(...findThisMethodCalls(methodBody));
+        }
+      }
+    }
+  }
+  return false;
+}
+
 function findDynamicTraySetup(source) {
   const setupRegex =
-    /let ([A-Za-z_$][\w$]*)=async\(\)=>\{[A-Za-z_$][\w$]*=!0;try\{await ([A-Za-z_$][\w$]*)\(\{(?:buildFlavor|appBrand):/g;
+    /let ([A-Za-z_$][\w$]*)=async\(\)=>\{(?:[A-Za-z_$][\w$]*=!0;)?try\{await ([A-Za-z_$][\w$]*)\(\{/g;
   let match;
   while ((match = setupRegex.exec(source)) != null) {
     const [, setupFn, factoryFn] = match;
@@ -39,9 +181,26 @@ function findDynamicTraySetup(source) {
 }
 
 function findDynamicTrayStartupCall(source, setupFn, startIndex) {
-  const startupRegex = new RegExp(`([A-Za-z_$][\\w$]*)&&${escapeRegExp(setupFn)}\\(\\);`, "g");
-  startupRegex.lastIndex = startIndex;
-  return startupRegex.exec(source);
+  const setupCall = `${escapeRegExp(setupFn)}\\(\\);`;
+  const startupPatterns = [
+    new RegExp(
+      `\\(([A-Za-z_$][\\w$]*)\\|\\|process\\.platform===\`linux\`\\)&&${setupCall}`,
+      "g",
+    ),
+    new RegExp(`([A-Za-z_$][\\w$]*)&&${setupCall}`, "g"),
+  ];
+  for (const startupRegex of startupPatterns) {
+    startupRegex.lastIndex = startIndex;
+    const match = startupRegex.exec(source);
+    if (match != null) {
+      return {
+        index: match.index,
+        length: match[0].length,
+        isWindowsVar: match[1],
+      };
+    }
+  }
+  return null;
 }
 
 function addDynamicTraySetupFailureLogging(source, traySetup) {
@@ -85,8 +244,42 @@ function addDynamicTraySetupFailureLogging(source, traySetup) {
   return `${source.slice(0, openIndex)}${patchedBody}${source.slice(closeIndex + 1)}`;
 }
 
-function applyLinuxTrayPatch(currentSource, iconPathExpression) {
+function applyLinuxTrayReadinessFallbackPatch(currentSource) {
+  const waitHelperName = currentSource.match(
+    /waitForReady\(\)\{return ([A-Za-z_$][\w$]*)\(this\.tray\)\}/,
+  )?.[1];
+  const readyHelperName = currentSource.match(
+    /isReady\(\)\{return ([A-Za-z_$][\w$]*)\(this\.tray\)\}/,
+  )?.[1];
   let patchedSource = currentSource;
+
+  if (waitHelperName != null) {
+    const waitHelperRegex = new RegExp(
+      `async function ${escapeRegExp(waitHelperName)}\\(([A-Za-z_$][\\w$]*)\\)\\{let ([A-Za-z_$][\\w$]*)=\\1;if\\(typeof \\2\\.whenReady!=\`function\`\\)return process\\.platform!==\`linux\`;try\\{return await \\2\\.whenReady\\(\\),!0\\}catch\\{return!1\\}\\}`,
+    );
+    patchedSource = patchedSource.replace(
+      waitHelperRegex,
+      (_match, trayArg, trayAlias) =>
+        `async function ${waitHelperName}(${trayArg}){let ${trayAlias}=${trayArg};if(typeof ${trayAlias}.whenReady!==\`function\`)return!0;try{return await ${trayAlias}.whenReady(),!0}catch{return!1}}`,
+    );
+  }
+
+  if (readyHelperName != null) {
+    const readyHelperRegex = new RegExp(
+      `function ${escapeRegExp(readyHelperName)}\\(([A-Za-z_$][\\w$]*)\\)\\{let ([A-Za-z_$][\\w$]*)=\\1;return typeof \\2\\.isReady==\`function\`\\?\\2\\.isReady\\(\\):process\\.platform!==\`linux\`\\}`,
+    );
+    patchedSource = patchedSource.replace(
+      readyHelperRegex,
+      (_match, trayArg, trayAlias) =>
+        `function ${readyHelperName}(${trayArg}){let ${trayAlias}=${trayArg};return typeof ${trayAlias}.isReady===\`function\`?${trayAlias}.isReady():!0}`,
+    );
+  }
+
+  return patchedSource;
+}
+
+function applyLinuxTrayPatch(currentSource, iconPathExpression) {
+  let patchedSource = applyLinuxTrayReadinessFallbackPatch(currentSource);
   const electronVar = requireName(currentSource, "electron") ?? "n";
   const packagedTrayIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`";
   const packagedAppIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop.png`";
@@ -105,11 +298,27 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     )
   ) {
     patchedSource = patchedSource.replace(trayGuardNeedle, trayGuardPatch);
+  } else if (hasNativeLinuxTrayFactory(patchedSource)) {
+    // Newer upstream builds have a dedicated Linux tray path instead of a
+    // shared platform guard.
   } else {
     console.warn("WARN: Could not find tray platform guard — skipping Linux tray guard patch");
   }
 
-  if (iconPathExpression != null) {
+  const nativeLinuxTrayIconBranch = findNativeLinuxTrayIconBranch(patchedSource);
+  if (
+    patchedSource.includes(`nativeImage.createFromPath(${packagedTrayIconPathExpression})`) ||
+    patchedSource.includes(`nativeImage.createFromPath(${packagedAppIconPathExpression})`)
+  ) {
+    // Already patched.
+  } else if (nativeLinuxTrayIconBranch != null) {
+    const nativeElectronVar = nativeLinuxTrayIconBranch.electronVar;
+    const nativeLinuxIconFallback =
+      `let __codexLinuxTrayIcon=${nativeElectronVar}.nativeImage.createFromPath(${packagedTrayIconPathExpression});if(!__codexLinuxTrayIcon.isEmpty())return{defaultIcon:__codexLinuxTrayIcon,chronicleRunningIcon:null};let __codexLinuxAppIcon=${nativeElectronVar}.nativeImage.createFromPath(${packagedAppIconPathExpression});if(!__codexLinuxAppIcon.isEmpty())return{defaultIcon:__codexLinuxAppIcon,chronicleRunningIcon:null};`;
+    const insertionIndex = nativeLinuxTrayIconBranch.openIndex + 1;
+    patchedSource =
+      `${patchedSource.slice(0, insertionIndex)}${nativeLinuxIconFallback}${patchedSource.slice(insertionIndex)}`;
+  } else if (iconPathExpression != null) {
     const linuxIconFallback =
       `if(process.platform===\`linux\`){let __codexLinuxTrayIcon=${electronVar}.nativeImage.createFromPath(${packagedTrayIconPathExpression});if(!__codexLinuxTrayIcon.isEmpty())return{defaultIcon:__codexLinuxTrayIcon,chronicleRunningIcon:null};let __codexLinuxAppIcon=${electronVar}.nativeImage.createFromPath(${packagedAppIconPathExpression});if(!__codexLinuxAppIcon.isEmpty())return{defaultIcon:__codexLinuxAppIcon,chronicleRunningIcon:null};let __codexLinuxUpstreamTrayIcon=${electronVar}.nativeImage.createFromPath(${iconPathExpression});if(!__codexLinuxUpstreamTrayIcon.isEmpty())return{defaultIcon:__codexLinuxUpstreamTrayIcon,chronicleRunningIcon:null}}`;
     const legacyGetFileIconSize = `process.platform===\`win32\`?\`small\`:\`normal\``;
@@ -121,12 +330,7 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
       /for\(let ([A-Za-z_$][\w$]*) of ([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\.nativeImage\.createFromPath\(\1\);if\(!\3\.isEmpty\(\)\)return\{defaultIcon:\3,chronicleRunningIcon:null\}\}return\{defaultIcon:await \4\.app\.getFileIcon\(process\.execPath,\{size:((?:process\.platform===`win32`\?`small`:`normal`)|`small`|`normal`)\}\),chronicleRunningIcon:null\}\}/;
     const helperTrayIconFallbackRegex =
       /let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(([^)]*)\);return \1==null\?\{defaultIcon:await ([A-Za-z_$][\w$]*)\.app\.getFileIcon\(process\.execPath,\{size:((?:process\.platform===`win32`\?`small`:`normal`)|`small`|`normal`)\}\),chronicleRunningIcon:null\}:\{defaultIcon:\1,chronicleRunningIcon:null\}/;
-    if (
-      patchedSource.includes(`nativeImage.createFromPath(${packagedTrayIconPathExpression})`) ||
-      patchedSource.includes(`nativeImage.createFromPath(${packagedAppIconPathExpression})`)
-    ) {
-      // Already patched.
-    } else if (patchedSource.includes(trayIconNeedle)) {
+    if (patchedSource.includes(trayIconNeedle)) {
       patchedSource = patchedSource.replace(trayIconNeedle, trayIconPatch);
     } else if (trayIconFallbackRegex.test(patchedSource)) {
       patchedSource = patchedSource.replace(
@@ -151,7 +355,7 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     // Already patched with a newer minifier's window variable.
   } else {
     const closeToTrayRegex =
-      /if\(process\.platform===`win32`&&!this\.isAppQuitting&&this\.options\.(canHideLast(?:Local)?WindowToTray)\?\.\(\)===!0&&!([A-Za-z_$][\w$]*)\)\{([A-Za-z_$][\w$]*)\.preventDefault\(\),([A-Za-z_$][\w$]*)\.hide\(\);return\}/;
+      /if\((?:process\.platform===`win32`|\(process\.platform===`win32`\|\|process\.platform===`linux`\))&&!this\.isAppQuitting&&this\.options\.(canHideLast(?:Local)?WindowToTray)\?\.\(\)===!0&&!([A-Za-z_$][\w$]*)\)\{([A-Za-z_$][\w$]*)\.preventDefault\(\),([A-Za-z_$][\w$]*)\.hide\(\);return\}/;
     const closeToTrayMatch = patchedSource.match(closeToTrayRegex);
     if (closeToTrayMatch != null) {
       const [, gateMethodName, hasOtherWindowVar, eventVar, windowVar] = closeToTrayMatch;
@@ -168,6 +372,8 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     "trayMenuThreads={runningThreads:[],unreadThreads:[],pinnedThreads:[],recentThreads:[],usageLimits:[]};constructor(";
   const trayContextMethodPatch =
     `trayMenuThreads={runningThreads:[],unreadThreads:[],pinnedThreads:[],recentThreads:[],usageLimits:[]};setLinuxTrayContextMenu(){let e=${electronVar}.Menu.buildFromTemplate(this.getNativeTrayMenuItems());this.tray.setContextMenu?.(e);return e}constructor(`;
+  const nativePersistentTrayMenuMethod =
+    findNativeLinuxPersistentTrayMenuMethod(patchedSource);
   if (patchedSource.includes("setLinuxTrayContextMenu(){")) {
     patchedSource = patchedSource.replace(
       /setLinuxTrayContextMenu\(\)\{let e=[A-Za-z_$][\w$]*\.Menu\.buildFromTemplate\(this\.getNativeTrayMenuItems\(\)\);/,
@@ -175,6 +381,8 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     );
   } else if (patchedSource.includes(trayContextMethodNeedle)) {
     patchedSource = patchedSource.replace(trayContextMethodNeedle, trayContextMethodPatch);
+  } else if (nativePersistentTrayMenuMethod != null) {
+    // Upstream owns a persistent Linux context menu.
   } else {
     console.warn("WARN: Could not find tray controller fields — skipping Linux tray context menu method patch");
   }
@@ -195,6 +403,10 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     );
   } else if (canSetLinuxTrayContextMenu && patchedSource.includes(trayClickPatchWithoutContextSetup)) {
     patchedSource = patchedSource.replace(trayClickPatchWithoutContextSetup, trayClickPatch);
+  } else if (
+    hasNativeLinuxTrayClickHandler(patchedSource, nativePersistentTrayMenuMethod)
+  ) {
+    // Upstream owns the Linux tray click behavior.
   } else {
     console.warn("WARN: Could not find tray click handler — skipping Linux tray menu click patch");
   }
@@ -219,6 +431,8 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     patchedSource = patchedSource.replace(trayMenuBuildNeedle, trayMenuBuildPatch);
   } else if (trayMenuBuildAnyAliasRegex.test(patchedSource)) {
     patchedSource = patchedSource.replace(trayMenuBuildAnyAliasRegex, trayMenuBuildPatch);
+  } else if (nativePersistentTrayMenuMethod != null) {
+    // Persistent Linux menus do not use the popup-only menu builder.
   } else {
     console.warn("WARN: Could not find tray native menu builder — skipping Linux tray context menu builder patch");
   }
@@ -239,6 +453,8 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     patchedSource = patchedSource.replace(oldLinuxPopupPatch, trayContextMenuPatch);
   } else if (patchedSource.includes(trayContextMenuNeedle)) {
     patchedSource = patchedSource.replace(trayContextMenuNeedle, trayContextMenuPatch);
+  } else if (nativePersistentTrayMenuMethod != null) {
+    // Persistent Linux menus do not use popUpContextMenu.
   } else {
     console.warn("WARN: Could not find tray native menu popup — skipping Linux tray popup guard patch");
   }
@@ -255,6 +471,10 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     patchedSource = patchedSource.replace(trayMenuThreadsExistingPatch, trayMenuThreadsPatch);
   } else if (patchedSource.includes(trayMenuThreadsNeedle)) {
     patchedSource = patchedSource.replace(trayMenuThreadsNeedle, trayMenuThreadsPatch);
+  } else if (
+    hasNativeLinuxTrayMenuRefresh(patchedSource, nativePersistentTrayMenuMethod)
+  ) {
+    // Upstream refreshes its persistent Linux context menu itself.
   } else {
     console.warn("WARN: Could not find tray menu thread update handler — skipping Linux tray context refresh patch");
   }
@@ -284,8 +504,8 @@ function applyLinuxTrayPatch(currentSource, iconPathExpression) {
     ) {
       // Already patched with a newer minifier's tray setup identifier.
     } else if (dynamicTrayStartupMatch != null) {
-      const isWindowsVar = dynamicTrayStartupMatch[1];
-      patchedSource = `${patchedSource.slice(0, dynamicTrayStartupMatch.index)}(${isWindowsVar}||${trayEnabledExpression})&&${traySetup.setupFn}();${patchedSource.slice(dynamicTrayStartupMatch.index + dynamicTrayStartupMatch[0].length)}`;
+      const { isWindowsVar } = dynamicTrayStartupMatch;
+      patchedSource = `${patchedSource.slice(0, dynamicTrayStartupMatch.index)}(${isWindowsVar}||${trayEnabledExpression})&&${traySetup.setupFn}();${patchedSource.slice(dynamicTrayStartupMatch.index + dynamicTrayStartupMatch.length)}`;
     } else {
       console.warn("WARN: Could not find tray startup call — skipping Linux tray startup patch");
     }
@@ -491,5 +711,6 @@ function applyLinuxSingleInstancePatch(currentSource) {
 module.exports = {
   applyLinuxBuildInfoTrayPatch,
   applyLinuxSingleInstancePatch,
+  applyLinuxTrayReadinessFallbackPatch,
   applyLinuxTrayPatch,
 };

@@ -97,14 +97,36 @@ codex_appimage_release_key() {
         sed -n 's/^v\{0,1\}\([0-9][0-9][0-9][0-9]\(\.[0-9][0-9]\)\{2\}\.[0-9][0-9][0-9][0-9][0-9][0-9]\).*/\1/p'
 }
 
+codex_appimage_release_arch() {
+    case "${CODEX_APPIMAGE_ARCH_OVERRIDE:-$(uname -m)}" in
+        x86_64|amd64) printf '%s\n' "x86_64" ;;
+        aarch64|arm64) printf '%s\n' "aarch64" ;;
+        *) return 1 ;;
+    esac
+}
+
 codex_appimage_fetch_latest_release() {
-    CODEX_APPIMAGE_RELEASE_API_URL="$CODEX_APPIMAGE_RELEASE_API_URL" node <<'NODE'
+    local release_arch
+    release_arch="$(codex_appimage_release_arch)" || return 1
+
+    CODEX_APPIMAGE_RELEASE_API_URL="$CODEX_APPIMAGE_RELEASE_API_URL" \
+        CODEX_APPIMAGE_RELEASE_ARCH="$release_arch" \
+        node <<'NODE'
 const https = require("node:https");
 
 const apiUrl = process.env.CODEX_APPIMAGE_RELEASE_API_URL;
-if (!apiUrl) {
+const releaseArch = process.env.CODEX_APPIMAGE_RELEASE_ARCH;
+if (!apiUrl || !releaseArch) {
   process.exit(2);
 }
+const acceptedNames = new Set(
+  releaseArch === "aarch64"
+    ? [
+        "codex-desktop-linux-aarch64.AppImage",
+        "codex-desktop-linux-arm64.AppImage",
+      ]
+    : ["codex-desktop-linux-x86_64.AppImage"]
+);
 
 const request = https.get(apiUrl, {
   headers: {
@@ -131,7 +153,7 @@ const request = https.get(apiUrl, {
     const assets = Array.isArray(release.assets) ? release.assets : [];
     const appImage = assets.find((asset) =>
       typeof asset?.name === "string" &&
-      asset.name.endsWith(".AppImage") &&
+      acceptedNames.has(asset.name) &&
       typeof asset?.browser_download_url === "string"
     );
     console.log(release.tag_name || "");

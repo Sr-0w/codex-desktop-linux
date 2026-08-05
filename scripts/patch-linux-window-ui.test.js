@@ -474,6 +474,24 @@ test("Linux target context parses distro, package, and desktop details", () => {
   }
 });
 
+test("Linux target context treats Gentoo as a native package target", () => {
+  const target = detectLinuxTargetContext({
+    osReleaseFields: {
+      ID: "gentoo",
+      VERSION_ID: "2.18",
+      PRETTY_NAME: "Gentoo Linux",
+    },
+    env: { PATH: "" },
+  });
+
+  assert.equal(target.distro.id, "gentoo");
+  assert.equal(target.packageFormat, "gentoo");
+  assert.equal(target.packageManager, "emerge");
+  assert.equal(target.matchesId("gentoo"), true);
+  assert.equal(target.packageFormatIs("gentoo"), true);
+  assert.match(linuxTargetSummary(target), /^gentoo:2\.18\/gentoo/);
+});
+
 test("build info captures DMG hash, features, distro profile, and source revision", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-build-info-"));
   // This test reads features.json from its own featuresRoot, which the
@@ -602,6 +620,19 @@ test("package profile distinguishes Fedora package managers by major version", (
 
   assert.equal(packageProfile(fedora40).packageManager, "dnf");
   assert.equal(packageProfile(fedora41).packageManager, "dnf5");
+});
+
+test("package profile describes Gentoo overlay installs", () => {
+  const gentoo = detectLinuxTargetContext({
+    osReleaseFields: { ID: "gentoo", VERSION_ID: "2.18", PRETTY_NAME: "Gentoo Linux" },
+    env: { PATH: "" },
+  });
+
+  const profile = packageProfile(gentoo);
+  assert.equal(profile.id, "gentoo");
+  assert.equal(profile.packageManager, "emerge");
+  assert.equal(profile.format, ".gentoo.tar.zst");
+  assert.match(profile.notes, /app-editors\/codex-desktop-bin/);
 });
 
 test("auto-discovered core patches can target a specific Linux distro", () => {
@@ -882,26 +913,30 @@ test("opt-in patch descriptors are recognized as non-critical drift", () => {
   ]);
 });
 
-test("fast-mode guard descriptor follows upstream service-tier bundle names", () => {
+test("fast-mode guard descriptor scans JavaScript assets independently of chunk names", () => {
   const descriptor = corePatchDescriptors().find((descriptor) =>
     descriptor.id === "linux-fast-mode-model-guard",
   );
 
   assert.ok(descriptor.pattern.test("use-is-fast-mode-enabled-abc.js"));
-  assert.ok(descriptor.pattern.test("read-service-tier-for-request-BJ8QN0Q7.js"));
-  assert.ok(descriptor.pattern.test("use-service-tier-settings-DFXPADNF.js"));
-  assert.ok(descriptor.pattern.test("app-server-manager-signals-BOGyjFm3.js"));
-  assert.equal(descriptor.pattern.test("service-tier-icons-CsNhab5W.js"), false);
+  assert.ok(descriptor.pattern.test("app-initial-CRKqnyc3.js"));
+  assert.ok(descriptor.pattern.test("future-upstream-split-9f31.mjs"));
+  assert.equal(descriptor.pattern.test("service-tier-icons-CsNhab5W.css"), false);
+  assert.equal(descriptor.pattern.test("service-tier-metadata.json"), false);
+  assert.equal(descriptor.pattern.test("app-initial-CRKqnyc3.js.map"), false);
 });
 
-test("subagent nickname metadata descriptor follows upstream metadata bundle names", () => {
+test("subagent metadata descriptor scans JavaScript assets independently of chunk names", () => {
   const descriptor = corePatchDescriptors().find((descriptor) =>
     descriptor.id === "subagent-nickname-metadata-shape",
   );
 
   assert.ok(descriptor.pattern.test("app-server-manager-signals-BOGyjFm3.js"));
-  assert.ok(descriptor.pattern.test("use-host-config-Dpd_LQBD.js"));
-  assert.equal(descriptor.pattern.test("thread-context-inputs-D5uMjcUB.js"), false);
+  assert.ok(descriptor.pattern.test("app-initial-CRKqnyc3.js"));
+  assert.ok(descriptor.pattern.test("future-upstream-split-9f31.cjs"));
+  assert.equal(descriptor.pattern.test("thread-context-inputs-D5uMjcUB.css"), false);
+  assert.equal(descriptor.pattern.test("subagent-metadata.json"), false);
+  assert.equal(descriptor.pattern.test("app-initial-CRKqnyc3.js.map"), false);
 });
 
 function trayBundleFixture() {
@@ -918,6 +953,25 @@ function currentTrayMenuBundleFixture() {
   return [
     "var sW=class{trayMenuThreads={runningThreads:[],unreadThreads:[],pinnedThreads:[],recentThreads:[],usageLimits:[]};constructor(){this.tray={on(){},setContextMenu(){},popUpContextMenu(){}}}getNativeTrayMenuItems(){let{pinnedThreads:e,recentThreads:t,runningThreads:r,unreadThreads:i,usageLimits:a}=this.trayMenuThreads,o=this.nativeIntl.formatMessage({messageId:vc,defaultMessage:yc}),s=this.nativeIntl.formatMessage({messageId:gc,defaultMessage:_c}),c=uW({label:this.nativeIntl.formatMessage({messageId:oc,defaultMessage:sc}),moreLabel:s,threads:r,projectlessLabel:o,onOpenThread:this.onTrayMenuOpenRecentThread}),h=[c].filter(e=>e.length>0).flatMap((e,t)=>t===0?e:[{type:`separator`},...e]);return[...h,...h.length>0?[{type:`separator`}]:[],{label:this.nativeIntl.formatMessage({messageId:nc,defaultMessage:rc}),click:()=>{this.onTrayMenuOpenNewThread()}},{type:`separator`},{label:fW(this.appName),click:()=>{n.app.quit()}}]}};",
   ].join("");
+}
+
+function nativeLinuxTrayBundleFixture() {
+  return [
+    "let l=require(`electron`),p=require(`node:path`);",
+    "async function pf(e){let t=e;if(typeof t.whenReady!=`function`)return process.platform!==`linux`;try{return await t.whenReady(),!0}catch{return!1}}function mf(e){let t=e;return typeof t.isReady==`function`?t.isReady():process.platform!==`linux`}",
+    "async function Wbe(e){let t=await Gbe(e.buildFlavor,e.appBrand,e.repoRoot),n=new l.Tray(t.defaultIcon);n.setToolTip(l.app.getName());return n}",
+    "async function Gbe(e,t,n){if(process.platform===`linux`){let r=`${bb(e,t)}.png`,i=l.nativeImage.createFromPath(l.app.isPackaged?(0,p.join)(process.resourcesPath,r):(0,p.join)(n,`electron`,`src`,`icons`,r));if(i.isEmpty())throw Error(`Linux tray application icon is unavailable`);return{defaultIcon:i.resize({width:16,height:16,quality:`best`}),chronicleRunningIcon:null}}return{defaultIcon:await l.app.getFileIcon(process.execPath,{size:`small`}),chronicleRunningIcon:null}}",
+    "var bge=class{trayMenuThreads={runningThreads:[],unreadThreads:[],pinnedThreads:[],recentThreads:[],usageLimits:[]};systemQuitMenuItemLabel;constructor(e,t){if(this.tray=e,this.onOpenMainWindow=t,this.systemQuitMenuItemLabel=`Quit`,process.platform===`linux`){this.tray.on(`click`,()=>{this.onOpenMainWindow()}),this.updatePersistentTrayMenu();return}}isReady(){return mf(this.tray)}waitForReady(){return pf(this.tray)}async handleMessage(e){switch(e.type){case`tray-menu-threads-changed`:this.trayMenuThreads=e.trayMenuThreads,this.refreshCachedWindowsTrayMenu(),this.updatePersistentTrayMenu();return}}refreshCachedWindowsTrayMenu(){}updatePersistentTrayMenu(){process.platform===`linux`&&this.tray.setContextMenu(l.Menu.buildFromTemplate(this.getNativeTrayMenuItems()))}getNativeTrayMenuItems(){return[{label:this.systemQuitMenuItemLabel,click:()=>{l.app.quit()}}]}};",
+    "N.on(`close`,e=>{this.persistPrimaryWindowBounds(N);let t=this.getPrimaryWindows().some(e=>e!==N);if((process.platform===`win32`||process.platform===`linux`)&&!this.isAppQuitting&&this.options.canHideLastWindowToTray?.()===!0&&!t){e.preventDefault(),N.hide();return}});",
+    "let Ae=async()=>{try{await Wbe({appBrand:a.kt(),buildFlavor:s,repoRoot:L.repoRoot})}catch(e){S.reportNonFatal(e,{kind:`tray-setup-failed`}),B()}},je=async e=>{if(e)await Ae()};(M||process.platform===`linux`)&&Ae();",
+  ].join("");
+}
+
+function nativeLinuxTrayRefreshHelperBundleFixture() {
+  return nativeLinuxTrayBundleFixture().replace(
+    "this.trayMenuThreads=e.trayMenuThreads,this.refreshCachedWindowsTrayMenu(),this.updatePersistentTrayMenu();return}}refreshCachedWindowsTrayMenu(){}",
+    "this.trayMenuThreads=e.trayMenuThreads,this.refreshMenu();return}}refreshMenu(){this.refreshCachedWindowsTrayMenu(),this.updatePersistentTrayMenu()}refreshCachedWindowsTrayMenu(){}",
+  );
 }
 
 function singleInstanceBundleFixture() {
@@ -1407,6 +1461,19 @@ function currentBootstrapUpdaterBundleWithAppUpdateStateBroadcastFixture() {
   ].join("");
 }
 
+function currentBootstrapUpdaterBundleWithProductionAppcastStateFixture() {
+  return currentBootstrapUpdaterBundleWithAppUpdateStateBroadcastFixture()
+    .replace(
+      "sparkleManager:s,setSparkleBridgeHandlers:c",
+      "sparkleManager:s,productionAppcastStateStore:p,setSparkleBridgeHandlers:c",
+    )
+    .replace(
+      "let ee=FZ(),P=null,te=e=>{if(e?.quitImmediately===!1){ee.allowQuitTemporarilyForUpdateInstall();return}ee.allowQuitTemporarilyForUpdateInstall(),r.app.quit()};let F=F3({}),oe=iZ({}),se=oe.getWindowContext();",
+      "let ve=new wxe,ye=null,be=null,xe=e=>{if(e?.quitImmediately===!1){ve.allowQuitTemporarilyForUpdateInstall();return}ve.allowQuitTemporarilyForUpdateInstall(),r.app.quit()},Se=Vwe({});let F=F3({}),oe=iZ({}),se=oe.getWindowContext();",
+    )
+    .replace("onInstallUpdatesRequested:e=>{te(e)}", "onInstallUpdatesRequested:e=>{xe(e)}");
+}
+
 function avatarOverlayBundleFixture() {
   return [
     "let u=require(`node:child_process`);",
@@ -1441,7 +1508,7 @@ function currentAvatarOverlayBundleFixture() {
     "endDrag(e,t){let n=this.window;if(n==null||n.isDestroyed()||n.webContents.id!==e)return;let r=this.dragState;if(r?.hasMovementIntent){let e=r.screen.getCursorScreenPoint(),i=r.getCursorPointForSource({native:r.cursorSource===`native`?V2(this.compositionHost.getCursorPosition()):null,renderer:{x:t?.pointerScreenX??e.x,y:t?.pointerScreenY??e.y}});i!=null&&this.moveDragToPointer(n,i)}this.suppressNextRendererThrow=r?.shouldSuppressRendererThrow()??!1,this.dragState=null,this.reclampWindowToVisibleDisplay({shouldPersist:!0})}",
     "setElementSize(e,{isTrayVisible:t,mascot:n,tray:r}){let i=this.window;i==null||i.isDestroyed()||i.webContents.id!==e||(this.cancelMomentum(),this.layoutMode=t==null?`native`:`legacy`,this.mascotSize=n,this.traySize=r,this.applyLatestElementSizes(i),this.stageWindowForNativePresentation(i),this.showWindowIfReady(i))}",
     "applyLatestElementSizes(e){this.anchor={...this.anchor,width:this.mascotSize.width,height:this.mascotSize.height},this.applyLayout(e)}",
-    "async createWindow(e){let t=await this.windowManager.createWindow({title:a.app.getName(),width:zB.width,height:zB.height,appearance:`avatarOverlay`,focusable:!1,show:!1,initialRoute:rV});return this.window=t,this.compositionHost.setOverlayWindow(t),this.rendererReady=this.windowManager.isWebContentsReady(t.webContents.id),this.clearDetachedDisplayRestore(),this.displayBounds=null,this.displayId=null,this.dragState=null,this.layout=null,this.mascotSize=oV,this.mousePassthroughEnabled=!1,this.traySize=null,t.on(`closed`,()=>{this.window===t&&(this.cancelMomentum(),this.clearMovedWindowPersist(),this.window=null,this.dragState=null,this.layout=null,this.rendererReady=!1,this.pointerInteractive=!1,this.mousePassthroughEnabled=!1,this.compositionHost.setOverlayWindow(null),this.broadcastOpenState())}),t}",
+    "async createWindow(e){let t=await this.windowManager.createWindow({title:a.app.getName(),width:zB.width,height:zB.height,appearance:`avatarOverlay`,supportsWindowTiling:!1,focusable:!1,show:!1,initialRoute:rV});return this.window=t,this.compositionHost.setOverlayWindow(t),this.rendererReady=this.windowManager.isWebContentsReady(t.webContents.id),this.clearDetachedDisplayRestore(),this.displayBounds=null,this.displayId=null,this.dragState=null,this.layout=null,this.mascotSize=oV,this.mousePassthroughEnabled=!1,this.traySize=null,t.on(`closed`,()=>{this.window===t&&(this.cancelMomentum(),this.clearMovedWindowPersist(),this.window=null,this.dragState=null,this.layout=null,this.rendererReady=!1,this.pointerInteractive=!1,this.mousePassthroughEnabled=!1,this.compositionHost.setOverlayWindow(null),this.broadcastOpenState())}),t}",
     "applyLayout(e,t=this.getCurrentDisplay(),n=!1,r=!0,i=null){if(e.isDestroyed())return;let a=t.bounds;this.displayId=t.id,this.resolutionKey=H2(a),this.displayBounds=a;let o=UB({anchor:this.anchor,displayBounds:this.layoutMode===`native`?t.workArea:t.bounds,mode:this.layoutMode,mascotSize:this.mascotSize,nativeMaterialAttached:this.compositionHost.isNativeMaterialAttached(),previousPlacement:this.placement,traySize:this.traySize??(this.layoutMode===`native`?k2:O2)});this.anchor=o.anchor,this.layout=o,this.placement=o.placement,this.setWindowBounds(e,o.windowBounds,n,r),this.sendLayoutToRenderer(e,i)}getLayout(e){if(this.layout??this.applyLayout(e),this.layout==null)throw Error(`Expected avatar overlay layout`);return this.layout}",
     "showWindow(e){if(e.isDestroyed())return;let t=this.isOpen();this.windowStagedForNativePresentation&&=(e.setOpacity(1),!1),e.moveTop(),e.showInactive(),!t&&this.isOpen()&&(this.finishPendingPresentation(),this.broadcastOpenState())}showWindowIfReady(e){!this.rendererReady||this.initialPresentationState!==`ready`||(this.showWindow(e),this.applyPointerInteractivityPolicy())}stageWindowForNativePresentation(e){e.isDestroyed()||this.applyPointerInteractivityPolicy()}broadcastOpenState(){this.windowManager.sendMessageToAllRegisteredWindows({type:`avatar-overlay-open-state-changed`,isOpen:this.isOpen()})}",
     "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughEnabled=!1;return}let t=!this.pointerInteractive;if(this.mousePassthroughEnabled!==t){if(this.mousePassthroughEnabled=t,t){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}refreshCursorAtCurrentMousePosition(e){let t=a.screen.getCursorScreenPoint()}",
@@ -1919,6 +1986,17 @@ test("supports explicit tray quit patching when upstream renames the quit label 
   assert.match(
     patched,
     /\{label:mH\(this\.appName\),click:\(\)=>\{typeof codexLinuxPrepareForExplicitQuit===`function`\?codexLinuxPrepareForExplicitQuit\(\):typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress\(\),n\.app\.quit\(\)\}\}/,
+  );
+});
+
+test("supports explicit tray quit patching with the current stored label", () => {
+  const source =
+    "let l=require(`electron`);var q=class{systemQuitMenuItemLabel;getNativeTrayMenuItems(){return[{label:this.systemQuitMenuItemLabel,click:()=>{l.app.quit()}}]}};";
+  const patched = applyPatchTwice(applyLinuxExplicitTrayQuitPatch, source);
+
+  assert.match(
+    patched,
+    /\{label:this\.systemQuitMenuItemLabel,click:\(\)=>\{typeof codexLinuxPrepareForExplicitQuit===`function`\?codexLinuxPrepareForExplicitQuit\(\):typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress\(\),l\.app\.quit\(\)\}\}/,
   );
 });
 
@@ -2451,6 +2529,17 @@ test("treats current service-tier helper bundles as already guarded", () => {
   assert.deepEqual(warnings, []);
 });
 
+test("ignores unrelated service tier length checks during content-wide scanning", () => {
+  const source =
+    "function renderServiceTierCount(e){return e.serviceTiers.length>0?e.serviceTiers.length:0}";
+  const { value, warnings } = captureWarns(() =>
+    applyLinuxFastModeModelGuardPatch(source),
+  );
+
+  assert.equal(value, source);
+  assert.deepEqual(warnings, []);
+});
+
 test("dedupes flattened skills lists across repeated cwd buckets", () => {
   const source = [
     "const handlers={\"list-skills-for-host\":()=>null};",
@@ -2582,15 +2671,47 @@ test("keeps Linux avatar overlay above the app while reply inputs are focusable"
 
   assert.match(
     patched,
-    /appearance:`avatarOverlay`,alwaysOnTop:process\.platform===`linux`,skipTaskbar:process\.platform===`linux`,focusable:process\.platform===`linux`\?!0:!1,show:!1/,
+    /title:process\.platform===`linux`\?`Codex Pet Overlay`:n\.app\.getName\(\)/,
+  );
+  assert.match(
+    patched,
+    /appearance:`avatarOverlay`,lockTitle:process\.platform===`linux`,focusable:process\.platform===`linux`\?!0:!1,show:!1/,
+  );
+  assert.match(
+    patched,
+    /return process\.platform===`linux`&&\(t\.setAlwaysOnTop\(!0\),t\.setSkipTaskbar\(!0\)\),this\.window=t/,
   );
   assert.doesNotMatch(patched, /appearance:`avatarOverlay`,focusable:!1,show:!1/);
+  assert.doesNotMatch(patched, /appearance:`avatarOverlay`,alwaysOnTop:/);
 
   const nonAvatarSource = "async createWindow(){return this.windowManager.createWindow({appearance:`main`,focusable:!1,show:!1})}";
   assert.equal(
     applyPatchTwice(applyLinuxAvatarOverlayMousePassthroughPatch, nonAvatarSource),
     nonAvatarSource,
   );
+});
+
+test("keeps the current avatar overlay movable while applying the KWin identity", () => {
+  const patched = applyPatchTwice(
+    applyLinuxAvatarOverlayMousePassthroughPatch,
+    currentAvatarOverlayBundleFixture(),
+  );
+
+  assert.match(
+    patched,
+    /title:process\.platform===`linux`\?`Codex Pet Overlay`:a\.app\.getName\(\)/,
+  );
+  assert.match(
+    patched,
+    /appearance:`avatarOverlay`,lockTitle:process\.platform===`linux`,supportsWindowTiling:!1,focusable:process\.platform===`linux`\?!0:!1/,
+  );
+  assert.match(
+    patched,
+    /return process\.platform===`linux`&&\(t\.setAlwaysOnTop\(!0\),t\.setSkipTaskbar\(!0\)\),this\.window=t/,
+  );
+  assert.match(patched, /startDrag\(e,t\)\{/);
+  assert.match(patched, /this\.moveDragToPointer\(n,i\)/);
+  assert.match(patched, /this\.reclampWindowToVisibleDisplay\(\{shouldPersist:!0\}\)/);
 });
 
 test("Linux avatar overlay interactivity is bounded to avatar regions", () => {
@@ -3069,6 +3190,83 @@ test("adds Linux tray support including the platform guard", () => {
     /\(E\|\|process\.platform===`linux`&&\(typeof codexLinuxIsTrayEnabled!==`function`\|\|codexLinuxIsTrayEnabled\(\)\)\)&&oe\(\);/,
   );
   assert.doesNotMatch(patched, /process\.platform===`linux`&&codexLinuxIsTrayEnabled\(\)/);
+});
+
+test("adapts the current upstream native Linux tray without legacy drift warnings", () => {
+  const source = nativeLinuxTrayBundleFixture();
+  const iconPathExpression =
+    "process.resourcesPath+`/../content/webview/assets/app-D0g8sCle.png`";
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxTrayPatch, source, iconPathExpression),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(
+    patched,
+    /let __codexLinuxTrayIcon=l\.nativeImage\.createFromPath\(process\.resourcesPath\+`\/\.\.\/\.codex-linux\/codex-desktop-tray\.png`\)/,
+  );
+  assert.match(
+    patched,
+    /let __codexLinuxAppIcon=l\.nativeImage\.createFromPath\(process\.resourcesPath\+`\/\.\.\/\.codex-linux\/codex-desktop\.png`\)/,
+  );
+  assert.match(
+    patched,
+    /\(process\.platform===`win32`\|\|process\.platform===`linux`\)&&!this\.isAppQuitting&&!\(typeof codexLinuxIsQuitInProgress===`function`&&codexLinuxIsQuitInProgress\(\)\)/,
+  );
+  assert.match(
+    patched,
+    /\(M\|\|process\.platform===`linux`&&\(typeof codexLinuxIsTrayEnabled!==`function`\|\|codexLinuxIsTrayEnabled\(\)\)\)&&Ae\(\);/,
+  );
+  assert.match(
+    patched,
+    /B\(\);process\.platform===`linux`&&console\.warn\(`\[codex-linux\] Failed to set up system tray`,e\)\}/,
+  );
+  assert.match(
+    patched,
+    /updatePersistentTrayMenu\(\)\{process\.platform===`linux`&&this\.tray\.setContextMenu/,
+  );
+  assert.match(
+    patched,
+    /async function pf\(e\)\{let t=e;if\(typeof t\.whenReady!==`function`\)return!0/,
+  );
+  assert.match(
+    patched,
+    /function mf\(e\)\{let t=e;return typeof t\.isReady===`function`\?t\.isReady\(\):!0\}/,
+  );
+  assert.doesNotMatch(patched, /return process\.platform!==`linux`/);
+  assert.doesNotMatch(patched, /setLinuxTrayContextMenu\(\)/);
+});
+
+test("follows current upstream tray refresh helper methods", () => {
+  const source = nativeLinuxTrayRefreshHelperBundleFixture();
+  const iconPathExpression =
+    "process.resourcesPath+`/../content/webview/assets/app-D0g8sCle.png`";
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxTrayPatch, source, iconPathExpression),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(
+    patched,
+    /refreshMenu\(\)\{this\.refreshCachedWindowsTrayMenu\(\),this\.updatePersistentTrayMenu\(\)\}/,
+  );
+  assert.doesNotMatch(patched, /setLinuxTrayContextMenu\(\)/);
+});
+
+test("does not accept a partial native Linux tray as complete support", () => {
+  const source = [
+    "let l=require(`electron`),p=require(`node:path`);",
+    "async function Wbe(e){let t=await Gbe(e.buildFlavor,e.appBrand,e.repoRoot);return new l.Tray(t.defaultIcon)}",
+    "async function Gbe(e,t,n){if(process.platform===`linux`){let i=l.nativeImage.createFromPath((0,p.join)(process.resourcesPath,`icon.png`));return{defaultIcon:i,chronicleRunningIcon:null}}return null}",
+    "let Ae=async()=>{try{await Wbe({appBrand:a,buildFlavor:s,repoRoot:L})}catch(e){B()}};(M||process.platform===`linux`)&&Ae();",
+  ].join("");
+  const { warnings } = captureWarns(() =>
+    applyLinuxTrayPatch(source, null),
+  );
+
+  assert.ok(warnings.some((warning) => warning.includes("close-to-tray condition")));
+  assert.ok(warnings.some((warning) => warning.includes("tray controller fields")));
+  assert.ok(warnings.some((warning) => warning.includes("tray click handler")));
 });
 
 test("uses collision-proof Linux tray icon variables when Electron alias is r", () => {
@@ -4956,10 +5154,12 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /function codexLinuxReadUpdateState\(\)/);
   assert.match(patched, /function codexLinuxUpdateLifecycleState\(e\)/);
   assert.match(patched, /function codexLinuxUpdateManagerPath\(\)/);
+  assert.match(patched, /function codexLinuxUpdateErrorDetail\(e\)/);
   assert.match(patched, /async function codexLinuxShowUpdateMessage\(codexLinuxMessage,codexLinuxDetail\)/);
   assert.match(patched, /function codexLinuxInstallAfterQuit\(\)/);
   assert.match(patched, /function codexLinuxQuitForUpdate\(\)/);
-  assert.match(patched, /let e=codexLinuxGetElectronModule\(\);if\(!e\)return;await e\.dialog\?\.showMessageBox\(\{type:`info`/);
+  assert.match(patched, /u\.execFile\(`kdialog`,\[`--title`,e,`--msgbox`,t\]/);
+  assert.match(patched, /let r=codexLinuxGetElectronModule\(\);if\(!r\)return;await r\.dialog\?\.showMessageBox\(\{type:`info`/);
   assert.match(patched, /u\.spawn\(`\/bin\/sh`/);
   assert.match(patched, /install-ready\|\|exit \$\?/);
   assert.match(patched, /grep -q "\^status: WaitingForAppExit"/);
@@ -4982,6 +5182,7 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /async initializeLinuxPackageUpdater\(\)/);
   assert.match(patched, /this\.updater=\{setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\},checkForUpdates/);
   assert.match(patched, /codexLinuxRunUpdateManager\(\[`check-now`\]\)/);
+  assert.match(patched, /codexLinuxShowUpdateMessage\(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail\(t\)\)/);
   assert.match(patched, /codexLinuxRunUpdateManager\(\[`install-ready`\]\)/);
   assert.match(patched, /this\.setInstallProgressPercent\(0\),this\.setUpdateLifecycleState\(`installing`\)/);
   assert.match(patched, /this\.setInstallProgressPercent\(null\),codexLinuxQuitForUpdate\(\)/);
@@ -4992,14 +5193,18 @@ test("adds Linux package updater behind the existing app updater manager", () =>
 
 test("migrates updater helpers away from captured Electron aliases", () => {
   const patched = applyLinuxAppUpdaterBridgePatch(appUpdaterBundleFixture());
-  const oldPatched = patched
+  const messageHelpersStart = patched.indexOf("function codexLinuxUpdateErrorDetail(");
+  const messageHelpersEnd = patched.indexOf("function codexLinuxInstallAfterQuit(", messageHelpersStart);
+  assert.notEqual(messageHelpersStart, -1);
+  assert.notEqual(messageHelpersEnd, -1);
+  const oldPatched = (
+    patched.slice(0, messageHelpersStart) +
+    "async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{await electron.dialog?.showMessageBox({type:`info`,buttons:[`OK`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}" +
+    patched.slice(messageHelpersEnd)
+  )
     .replace(
       "function codexLinuxGetElectronModule(){try{return require(`electron`)}catch{return null}}",
       "",
-    )
-    .replace(
-      "async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{let e=codexLinuxGetElectronModule();if(!e)return;await e.dialog?.showMessageBox({type:`info`,buttons:[`OK`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}",
-      "async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{await electron.dialog?.showMessageBox({type:`info`,buttons:[`OK`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}",
     )
     .replace(
       "function codexLinuxQuitForUpdate(){try{codexLinuxInstallAfterQuit();let t=codexLinuxGetElectronModule();if(!t)return;let e=setTimeout(()=>t.app?.exit?.(0),1500);e.unref?.(),t.app?.quit?.()}catch{}}",
@@ -5009,6 +5214,7 @@ test("migrates updater helpers away from captured Electron aliases", () => {
   const migrated = applyPatchTwice(applyLinuxAppUpdaterBridgePatch, oldPatched);
 
   assert.match(migrated, /function codexLinuxGetElectronModule\(\)\{try\{return require\(`electron`\)\}catch\{return null\}\}/);
+  assert.match(migrated, /execFile\(`kdialog`,\[`--title`,e,`--msgbox`,t\]/);
   assert.match(migrated, /function codexLinuxQuitForUpdate\(\)\{try\{codexLinuxInstallAfterQuit\(\);let t=codexLinuxGetElectronModule\(\);if\(!t\)return;let e=setTimeout\(\(\)=>t\.app\?\.exit\?\.\(0\),1500\);e\.unref\?\.\(\),t\.app\?\.quit\?\.\(\)\}catch\{\}\}/);
   assert.doesNotMatch(migrated, /setTimeout\(\(\)=>electron\.app\?\.exit\?\.\(0\),1500\)/);
   assert.doesNotMatch(migrated, /await electron\.dialog\?\.showMessageBox/);
@@ -5037,7 +5243,12 @@ test("adds Linux package updater to current bootstrap updater wiring", () => {
   assert.match(patched, /codexLinuxRunUpdateManager\(\[`--help`\]\)/);
   assert.match(patched, /async function codexLinuxRefreshUpdateState\(\)\{return codexLinuxReadUpdateState\(\)\}/);
   assert.match(patched, /codexLinuxProbeUpdateManager\(\)\.then\(\(\)=>\{s=!0,i\(\),a\(\);return!0\}\)/);
-  assert.match(patched, /manager:\{setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\}/);
+  assert.match(patched, /manager:\{latchInAppUpdatesEnabledForLaunch:\(\)=>\{\}/);
+  assert.match(patched, /setSparkleQueryParams:\(\)=>\{\}/);
+  assert.match(patched, /getDownloadProgressPercent:\(\)=>null/);
+  assert.match(patched, /getDownloadedUpdateAppBrand:\(\)=>null/);
+  assert.match(patched, /getRelaunchNotice:\(\)=>null/);
+  assert.match(patched, /setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\}/);
   assert.match(patched, /getIsUpdateReady:\(\)=>s&&t/);
   assert.match(patched, /checkForUpdates:async\(\)=>\{if\(!await c\)return;n=`checking`/);
   assert.match(patched, /installUpdatesIfAvailable:async\(\)=>\{if\(!await c\)\{a\(\);return\}i\(\);if\(!t\)\{a\(\);return\}/);
@@ -5071,6 +5282,18 @@ test("adds Linux package updater to current bootstrap updater wiring after broad
   assert.match(patched, /s=codexLinuxPackageUpdateBridge\.manager/);
   assert.match(patched, /te=codexLinuxPackageUpdateBridge\.quitForUpdate/);
   assert.doesNotMatch(patched, /send:e=>se\.sendMessageToAllRegisteredWindows/);
+});
+
+test("adds Linux package updater when production appcast state is destructured", () => {
+  const patched = applyPatchTwice(
+    applyLinuxAppUpdaterBridgePatch,
+    currentBootstrapUpdaterBundleWithProductionAppcastStateFixture(),
+  );
+
+  assert.match(patched, /function codexLinuxCreatePackageUpdateManager\(/);
+  assert.match(patched, /codexLinuxPackageUpdateBridge=process\.platform===`linux`/);
+  assert.match(patched, /send:\(\)=>se\.broadcastAppUpdateState\(\)/);
+  assert.match(patched, /s=codexLinuxPackageUpdateBridge\.manager/);
 });
 
 test("adds Linux package updater to current bootstrap updater wiring when dispatcher is farther away", () => {
@@ -5122,6 +5345,24 @@ test("migrates already-patched bootstrap updater bridge to probe before enabling
   assert.match(migrated, /codexLinuxProbeUpdateManager\(\)\.then\(\(\)=>\{s=!0,i\(\),a\(\);return!0\}\)/);
   assert.match(migrated, /getIsUpdateReady:\(\)=>s&&t/);
   assert.match(migrated, /installUpdatesIfAvailable:async\(\)=>\{if\(!await c\)\{a\(\);return\}i\(\);if\(!t\)\{a\(\);return\}/);
+});
+
+test("migrates an older Linux package updater manager to the current Sparkle interface", () => {
+  const patched = applyLinuxAppUpdaterBridgePatch(currentBootstrapUpdaterBundleFixture());
+  const oldPatched = patched
+    .replace("latchInAppUpdatesEnabledForLaunch:()=>{},", "")
+    .replace("setSparkleQueryParams:()=>{},", "")
+    .replace("getDownloadProgressPercent:()=>null,", "")
+    .replace("getDownloadedUpdateAppBrand:()=>null,", "")
+    .replace("getRelaunchNotice:()=>null,", "");
+
+  const migrated = applyPatchTwice(applyLinuxAppUpdaterBridgePatch, oldPatched);
+
+  assert.match(migrated, /latchInAppUpdatesEnabledForLaunch:\(\)=>\{\}/);
+  assert.match(migrated, /setSparkleQueryParams:\(\)=>\{\}/);
+  assert.match(migrated, /getDownloadProgressPercent:\(\)=>null/);
+  assert.match(migrated, /getDownloadedUpdateAppBrand:\(\)=>null/);
+  assert.match(migrated, /getRelaunchNotice:\(\)=>null/);
 });
 
 test("migrates previous bootstrap updater bridge without leaving undefined probe state", () => {

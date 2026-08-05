@@ -589,6 +589,14 @@ run_packaged_runtime_prelaunch() {
     fi
 }
 
+run_packaged_runtime_after_exit() {
+    local electron_status="${1:-0}"
+
+    if declare -F codex_packaged_runtime_after_exit >/dev/null 2>&1; then
+        codex_packaged_runtime_after_exit "$electron_status"
+    fi
+}
+
 export_packaged_runtime_env() {
     if declare -F codex_packaged_runtime_export_env >/dev/null 2>&1; then
         codex_packaged_runtime_export_env
@@ -796,42 +804,165 @@ write_chrome_native_host_manifests() {
     local host_path="$1"
     local plugin_dir="$2"
 
-    python3 - "$host_path" "$HOME" "$plugin_dir" "$SCRIPT_DIR" <<'PY'
+    python3 - "$host_path" "$HOME" "$plugin_dir" "$SCRIPT_DIR" "$BROWSER_USE_RUNTIME_LINK_DIR" <<'PY'
 import json
+import os
 import pathlib
 import re
+import shutil
 import sys
 
 host_path = sys.argv[1]
 home = pathlib.Path(sys.argv[2])
 plugin_dir = pathlib.Path(sys.argv[3])
 app_dir = pathlib.Path(sys.argv[4])
+runtime_link_dir = pathlib.Path(sys.argv[5])
 scripts_dir = plugin_dir / "scripts"
 
-extension_id = None
+extension_ids = []
 host_name = None
+channel = None
 
 extension_id_json = scripts_dir / "extension-id.json"
 try:
     data = json.loads(extension_id_json.read_text(encoding="utf-8"))
     extension_id = data.get("extensionId")
+    if isinstance(extension_id, str):
+        extension_ids.append(extension_id)
+    configured_extension_ids = data.get("extensionIds")
+    if isinstance(configured_extension_ids, list):
+        extension_ids.extend(
+            value for value in configured_extension_ids if isinstance(value, str)
+        )
     host_name = data.get("extensionHostName")
+except (OSError, json.JSONDecodeError):
+    pass
+
+install_manifest = ""
+try:
+    install_manifest = (scripts_dir / "installManifest.mjs").read_text(encoding="utf-8")
 except OSError:
     pass
 
-if extension_id is None or host_name is None:
-    install_manifest = (scripts_dir / "installManifest.mjs").read_text(encoding="utf-8")
+if install_manifest:
     extension_id_match = re.search(r'extensionId\s*:\s*"([a-p]{32})"', install_manifest)
+    extension_ids_match = re.search(r'extensionIds\s*:\s*\[([^\]]+)\]', install_manifest)
     host_name_match = re.search(r'extensionHostName\s*:\s*"([A-Za-z0-9_.]+)"', install_manifest)
-    if extension_id is None and extension_id_match is not None:
-        extension_id = extension_id_match.group(1)
+    channel_match = re.search(r'channel\s*:\s*"([A-Za-z0-9_-]+)"', install_manifest)
+    if extension_id_match is not None:
+        extension_ids.append(extension_id_match.group(1))
+    if extension_ids_match is not None:
+        extension_ids.extend(
+            re.findall(r'"([a-p]{32})"', extension_ids_match.group(1))
+        )
     if host_name is None and host_name_match is not None:
         host_name = host_name_match.group(1)
+    if channel_match is not None:
+        channel = channel_match.group(1)
 
-if not isinstance(extension_id, str) or re.fullmatch(r"[a-p]{32}", extension_id) is None:
+extension_ids = list(dict.fromkeys(extension_ids))
+if not extension_ids or any(
+    re.fullmatch(r"[a-p]{32}", extension_id) is None for extension_id in extension_ids
+):
     raise SystemExit("Invalid Chrome extension id in bundled plugin metadata")
 if not isinstance(host_name, str) or re.fullmatch(r"[A-Za-z0-9_.]+", host_name) is None:
     raise SystemExit("Invalid Chrome native host name in bundled plugin metadata")
+
+def executable_candidate(*candidates):
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = pathlib.Path(candidate).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+codex_cli_path = executable_candidate(
+    os.environ.get("CODEX_CLI_PATH"),
+    shutil.which("codex"),
+    home / ".local/bin/codex",
+    home / ".npm-global/bin/codex",
+)
+node_path = executable_candidate(
+    os.environ.get("CODEX_BROWSER_USE_NODE_PATH"),
+    runtime_link_dir / "node",
+    app_dir / "resources/node-runtime/bin/node",
+    app_dir / "resources/node",
+    shutil.which("node"),
+)
+node_repl_path = executable_candidate(
+    os.environ.get("CODEX_NODE_REPL_PATH"),
+    runtime_link_dir / "node_repl",
+    app_dir / "resources/node_repl",
+    shutil.which("node_repl"),
+)
+browser_client_path = plugin_dir / "scripts/browser-client.mjs"
+
+missing_paths = []
+for name, value in (
+    ("codexCliPath", codex_cli_path),
+    ("nodePath", node_path),
+    ("nodeReplPath", node_repl_path),
+):
+    if value is None:
+        missing_paths.append(name)
+if not browser_client_path.is_file():
+    missing_paths.append("browserClientPath")
+if missing_paths:
+    raise SystemExit(
+        "Missing Chrome native host runtime paths: " + ", ".join(missing_paths)
+    )
+
+resources_candidates = [
+    os.environ.get("CODEX_ELECTRON_RESOURCES_PATH"),
+    runtime_link_dir / "resources",
+    app_dir / "resources",
+]
+resources_path = next(
+    (str(pathlib.Path(path)) for path in resources_candidates if path and pathlib.Path(path).is_dir()),
+    None,
+)
+node_module_dirs = [
+    str(path)
+    for path in (
+        app_dir / "resources/app.asar.unpacked/node_modules",
+        app_dir / "resources/node-runtime/lib/node_modules",
+        app_dir / "resources/node_modules",
+    )
+    if path.is_dir()
+]
+
+runtime_config = {
+    "schemaVersion": 1,
+    "channel": channel or "prod",
+    "browserClientPath": str(browser_client_path),
+    "codexCliPath": codex_cli_path,
+    "nodeModuleDirs": node_module_dirs,
+    "nodePath": node_path,
+    "nodeReplPath": node_repl_path,
+    "proxyHost": "127.0.0.1",
+    "proxyPort": 0,
+    "codexHome": os.environ.get("CODEX_HOME") or str(home / ".codex"),
+}
+if resources_path is not None:
+    runtime_config["resourcesPath"] = resources_path
+
+def write_text_if_changed(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return
+    except OSError:
+        pass
+    temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
+
+runtime_config_path = pathlib.Path(host_path).parent / "extension-host-config.json"
+write_text_if_changed(
+    runtime_config_path,
+    json.dumps(runtime_config, indent=2, sort_keys=True) + "\n",
+)
 
 manifest_name = f"{host_name}.json"
 manifest = {
@@ -839,7 +970,7 @@ manifest = {
     "description": "Codex chrome native messaging host",
     "type": "stdio",
     "path": host_path,
-    "allowed_origins": [f"chrome-extension://{extension_id}/"],
+    "allowed_origins": [f"chrome-extension://{extension_id}/" for extension_id in extension_ids],
 }
 text = json.dumps(manifest, separators=(",", ":"))
 
@@ -867,14 +998,8 @@ except OSError:
 
 for relative in manifest_locations:
     directory = home / relative
-    directory.mkdir(parents=True, exist_ok=True)
     path = directory / manifest_name
-    try:
-        if path.read_text(encoding="utf-8") == text:
-            continue
-    except OSError:
-        pass
-    path.write_text(text, encoding="utf-8")
+    write_text_if_changed(path, text)
 PY
 }
 
@@ -2158,10 +2283,8 @@ adopt_existing_webview_server() {
         if running_app_is_active; then
             ADOPTED_WEBVIEW_PID="$pid"
             echo "Reusing webview server pid=$pid owned by running Codex Desktop pid=$RUNNING_APP_PID"
-        else
-            STARTED_WEBVIEW_PID="$pid"
+            return 0
         fi
-        return 0
     fi
 
     return 1
@@ -2170,19 +2293,29 @@ adopt_existing_webview_server() {
 adopt_discovered_webview_server() {
     local pid
 
-    if pid="$(discover_webview_server_pid)"; then
+    if running_app_is_active && pid="$(discover_webview_server_pid)"; then
         echo "$pid" > "$WEBVIEW_PID_FILE"
-        if running_app_is_active; then
-            ADOPTED_WEBVIEW_PID="$pid"
-            echo "Reusing webview server pid=$pid owned by running Codex Desktop pid=$RUNNING_APP_PID"
-        else
-            STARTED_WEBVIEW_PID="$pid"
-            echo "Adopted existing webview server pid=$pid dir=$WEBVIEW_DIR"
-        fi
+        ADOPTED_WEBVIEW_PID="$pid"
+        echo "Reusing webview server pid=$pid owned by running Codex Desktop pid=$RUNNING_APP_PID"
         return 0
     fi
 
     return 1
+}
+
+replace_orphaned_webview_server() {
+    local pid=""
+
+    running_app_is_active && return 0
+    pid="$(owned_webview_server_pid || true)"
+    if [ -z "$pid" ]; then
+        pid="$(discover_webview_server_pid || true)"
+    fi
+    [ -n "$pid" ] || return 0
+
+    echo "$pid" > "$WEBVIEW_PID_FILE"
+    echo "Replacing orphaned webview server pid=$pid before cold start"
+    stop_owned_webview_server
 }
 
 ensure_webview_server() {
@@ -2202,6 +2335,8 @@ ensure_webview_server() {
             exit 1
         fi
     fi
+
+    replace_orphaned_webview_server
 
     if webview_port_is_open; then
         stop_stale_webview_server
@@ -2937,7 +3072,9 @@ cleanup_launcher() {
 
     if [ -n "${STARTED_WEBVIEW_PID:-}" ] && pid_is_webview_server "$STARTED_WEBVIEW_PID"; then
         kill "$STARTED_WEBVIEW_PID" 2>/dev/null || true
-        rm -f "$WEBVIEW_PID_FILE"
+        if [ "$(cat "$WEBVIEW_PID_FILE" 2>/dev/null || true)" = "$STARTED_WEBVIEW_PID" ]; then
+            rm -f "$WEBVIEW_PID_FILE"
+        fi
     fi
 }
 
@@ -3063,6 +3200,7 @@ launch_electron() {
     local status=$?
     set -e
     run_feature_after_exit_hooks "$status"
+    run_packaged_runtime_after_exit "$status"
     return "$status"
 }
 
@@ -3099,7 +3237,6 @@ elif needs_cold_start; then
     log_phase "packaged_prelaunch_start"
     run_packaged_runtime_prelaunch
     log_phase "packaged_prelaunch"
-    ensure_webview_server
 else
     echo "Skipping packaged prelaunch and webview setup for warm start"
     log_phase "warm_start_ready"
@@ -3182,6 +3319,10 @@ if needs_cold_start; then
     if [ "$LAUNCHER_LOCK_TIMED_OUT" -eq 1 ]; then
         reap_orphaned_runtime_processes
         detect_cross_install_conflict
+    fi
+    if needs_cold_start; then
+        ensure_webview_server
+        log_phase "webview_checked_under_lock"
     fi
 fi
 

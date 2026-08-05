@@ -224,7 +224,9 @@ os_release_matches() {
 }
 
 detect_package_manager() {
-    if os_release_matches debian ubuntu linuxmint pop elementary zorin && command -v apt-get >/dev/null 2>&1; then
+    if os_release_matches gentoo && command -v emerge >/dev/null 2>&1; then
+        echo "emerge"
+    elif os_release_matches debian ubuntu linuxmint pop elementary zorin && command -v apt-get >/dev/null 2>&1; then
         echo "apt"
     elif os_release_matches arch archlinux manjaro endeavouros artix && command -v pacman >/dev/null 2>&1; then
         echo "pacman"
@@ -240,6 +242,8 @@ detect_package_manager() {
         fi
     elif command -v apt-get >/dev/null 2>&1; then
         echo "apt"
+    elif command -v emerge >/dev/null 2>&1; then
+        echo "emerge"
     elif command -v dnf5 >/dev/null 2>&1; then
         echo "dnf5"
     elif command -v dnf >/dev/null 2>&1; then
@@ -254,12 +258,16 @@ detect_package_manager() {
 }
 
 detect_package_format() {
-    if os_release_matches arch archlinux manjaro endeavouros artix; then
+    if os_release_matches gentoo; then
+        echo "gentoo"
+    elif os_release_matches arch archlinux manjaro endeavouros artix; then
         echo "pacman"
     elif os_release_matches fedora rhel centos rocky almalinux ol sles suse opensuse; then
         echo "rpm"
     elif os_release_matches debian ubuntu linuxmint pop elementary zorin; then
         echo "deb"
+    elif command -v emerge >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then
+        echo "gentoo"
     elif command -v pacman >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then
         echo "pacman"
     elif command -v rpmbuild >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then
@@ -357,6 +365,9 @@ install_command_for_packages() {
         pacman)
             printf 'sudo pacman -S %s' "$packages"
             ;;
+        emerge)
+            printf 'sudo emerge --ask %s' "$packages"
+            ;;
         zypper)
             printf 'sudo zypper install %s' "$packages"
             ;;
@@ -369,6 +380,16 @@ install_command_for_packages() {
 computer_use_portal_packages() {
     local desktop="${XDG_CURRENT_DESKTOP:-} ${DESKTOP_SESSION:-}"
     desktop="${desktop,,}"
+    if [ "$(detect_package_manager)" = "emerge" ]; then
+        if [[ "$desktop" == *kde* || "$desktop" == *plasma* ]]; then
+            printf 'sys-apps/xdg-desktop-portal kde-plasma/xdg-desktop-portal-kde'
+        elif [[ "$desktop" == *gnome* ]]; then
+            printf 'sys-apps/xdg-desktop-portal sys-apps/xdg-desktop-portal-gnome'
+        else
+            printf 'sys-apps/xdg-desktop-portal'
+        fi
+        return
+    fi
     if [[ "$desktop" == *kde* || "$desktop" == *plasma* ]]; then
         printf 'xdg-desktop-portal xdg-desktop-portal-kde'
     elif [[ "$desktop" == *hyprland* || "$desktop" == *sway* || "$desktop" == *wlroots* ]]; then
@@ -614,6 +635,14 @@ installed_package_version() {
         pacman -Q "$PACKAGE_NAME" >/dev/null 2>&1; then
         pacman -Q "$PACKAGE_NAME" 2>/dev/null | sed 's/^/pacman /'
         return
+    fi
+    local gentoo_match=""
+    if [ -d /var/db/pkg/app-editors ]; then
+        gentoo_match="$(find /var/db/pkg/app-editors -maxdepth 1 -type d -name 'codex-desktop-bin-*' -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)"
+        if [ -n "$gentoo_match" ]; then
+            printf 'gentoo %s\n' "${gentoo_match#codex-desktop-bin-}"
+            return
+        fi
     fi
     printf 'not installed'
 }

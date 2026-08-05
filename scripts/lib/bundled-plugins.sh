@@ -378,9 +378,14 @@ install_browser_use_node_repl_executable_resource() {
 }
 
 browser_use_node_repl_runtime_url() {
+    if [ -n "${CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL:-}" ]; then
+        printf '%s\n' "$CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL"
+        return 0
+    fi
+
     case "$ARCH" in
         x86_64)
-            echo "${CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL:-https://persistent.oaistatic.com/codex-primary-runtime/26.426.12240/codex-primary-runtime-linux-x64-26.426.12240.tar.xz}"
+            echo "https://persistent.oaistatic.com/codex-primary-runtime/26.426.12240/codex-primary-runtime-linux-x64-26.426.12240.tar.xz"
             ;;
         *)
             return 1
@@ -389,9 +394,15 @@ browser_use_node_repl_runtime_url() {
 }
 
 browser_use_node_repl_runtime_sha256() {
+    if [ -n "${CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL:-}" ]; then
+        [ -n "${CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256:-}" ] || return 1
+        printf '%s\n' "$CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256"
+        return 0
+    fi
+
     case "$ARCH" in
         x86_64)
-            echo "${CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256:-db5624eb6efa36b66ec6f6dd0488cefb966e49636862aab6209a4336c1ca90c4}"
+            echo "db5624eb6efa36b66ec6f6dd0488cefb966e49636862aab6209a4336c1ca90c4"
             ;;
         *)
             return 1
@@ -412,7 +423,10 @@ install_node_repl_from_primary_runtime_archive() {
         warn "Browser Use node_repl primary-runtime fallback is unavailable for $ARCH"
         return 1
     fi
-    expected_sha="$(browser_use_node_repl_runtime_sha256)"
+    if ! expected_sha="$(browser_use_node_repl_runtime_sha256)"; then
+        warn "Browser Use node_repl runtime override requires CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256"
+        return 1
+    fi
 
     cache_dir="${CODEX_BROWSER_USE_RUNTIME_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/codex-desktop/browser-use}"
     archive="$cache_dir/$(basename "$url")"
@@ -600,6 +614,8 @@ stage_chrome_plugin_from_upstream() {
     cp -R "$source_plugin" "$target_plugin"
     remove_macos_sidecar_files "$target_plugin"
     patch_chrome_plugin_for_linux "$target_plugin"
+    patch_browser_use_blocked_process_import "$target_plugin/scripts/browser-client.mjs"
+    patch_browser_use_optional_after_submitted_hook "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_node_repl_env_guard "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_node_repl_config_shim "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_native_pipe_import_meta_bridge "$target_plugin/scripts/browser-client.mjs"
@@ -612,6 +628,87 @@ stage_chrome_plugin_from_upstream() {
 
     info "Chrome plugin staged from upstream DMG"
     return 0
+}
+
+patch_browser_use_blocked_process_import() {
+    local client="$1"
+
+    python3 - "$client" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+pattern = re.compile(
+    r'import\s*\{\s*env(?:\s+as\s+(?P<binding>[A-Za-z_$][\w$]*))?\s*\}'
+    r'\s*from\s*["\'](?:node:)?process["\']\s*;?'
+)
+
+
+def replace(match):
+    binding = match.group("binding") or "env"
+    return (
+        f'var {binding}=globalThis.nodeRepl?.env??{{}};'
+        '/*codexLinuxBlockedProcessImport*/'
+    )
+
+
+patched, count = pattern.subn(replace, source)
+if count > 0:
+    path.write_text(patched, encoding="utf-8")
+
+blocked_import = re.compile(
+    r'(?:\bfrom\s*|\bimport\s*(?:\(\s*)?)["\'](?:node:)?process["\']'
+)
+if blocked_import.search(patched):
+    print(
+        "WARN: Browser Use still imports the blocked process module after Linux patching",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
+}
+
+patch_browser_use_optional_after_submitted_hook() {
+    local client="$1"
+
+    if grep -q "codexLinuxOptionalAfterSubmittedHook" "$client"; then
+        return 0
+    fi
+
+    python3 - "$client" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+pattern = re.compile(
+    r'(?P<flag>[A-Za-z_$][\w$]*)\s*\|\|\s*\(\s*'
+    r'(?P<bridge>[A-Za-z_$][\w$]*)\.addAfterSubmittedCodeHook\s*\('
+)
+match = pattern.search(source)
+if match is None:
+    if re.search(
+        r'\|\|\s*\(\s*[A-Za-z_$][\w$]*\.addAfterSubmittedCodeHook\s*\(',
+        source,
+    ):
+        print(
+            "WARN: Could not find Browser Use optional after-submit hook insertion point",
+            file=sys.stderr,
+        )
+    raise SystemExit(0)
+
+flag = match.group("flag")
+bridge = match.group("bridge")
+replacement = (
+    f'{flag}||typeof {bridge}.addAfterSubmittedCodeHook!="function"'
+    f'/*codexLinuxOptionalAfterSubmittedHook*/||('
+    f'{bridge}.addAfterSubmittedCodeHook('
+)
+path.write_text(source[:match.start()] + replacement + source[match.end():], encoding="utf-8")
+PY
 }
 
 patch_browser_use_site_status_allowlist_fallback() {
@@ -1080,6 +1177,8 @@ stage_browser_plugin_from_upstream() {
     rm -rf "$target_plugin"
     cp -R "$source_plugin" "$target_plugin"
     remove_macos_sidecar_files "$target_plugin"
+    patch_browser_use_blocked_process_import "$target_client"
+    patch_browser_use_optional_after_submitted_hook "$target_client"
     patch_browser_use_node_repl_env_guard "$target_client"
     patch_browser_use_node_repl_config_shim "$target_client"
     patch_browser_use_native_pipe_import_meta_bridge "$target_client"

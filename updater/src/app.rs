@@ -95,9 +95,11 @@ pub async fn run(cli: Cli) -> Result<()> {
         Commands::InstallDeb { path } => install::install_deb(&path),
         Commands::InstallRpm { path } => install::install_rpm(&path),
         Commands::InstallPacman { path } => install::install_pacman(&path),
+        Commands::InstallGentoo { path } => install::install_gentoo(&path),
         Commands::InstallRollbackDeb { path } => install_rollback::install_deb(&path),
         Commands::InstallRollbackRpm { path } => install_rollback::install_rpm(&path),
         Commands::InstallRollbackPacman { path } => install_rollback::install_pacman(&path),
+        Commands::InstallRollbackGentoo { path } => install_rollback::install_gentoo(&path),
     }
 }
 
@@ -1695,6 +1697,7 @@ fn manual_install_command(package_path: &Path) -> String {
         install::PackageKind::Deb => "install-deb",
         install::PackageKind::Rpm => "install-rpm",
         install::PackageKind::Pacman => "install-pacman",
+        install::PackageKind::Gentoo => "install-gentoo",
     };
     format!(
         "sudo /usr/bin/codex-update-manager {subcommand} --path {}",
@@ -3059,6 +3062,10 @@ mod tests {
         assert_eq!(
             manual_install_command(Path::new("/tmp/codex'update.deb")),
             "sudo /usr/bin/codex-update-manager install-deb --path '/tmp/codex'\\''update.deb'"
+        );
+        assert_eq!(
+            manual_install_command(Path::new("/tmp/codex update.gentoo.tar.zst")),
+            "sudo /usr/bin/codex-update-manager install-gentoo --path '/tmp/codex update.gentoo.tar.zst'"
         );
     }
 

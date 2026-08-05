@@ -1,16 +1,19 @@
 # Auto-Update Manager
 
-Default native packages install `codex-update-manager`, a companion
-`systemd --user` service.
+Default native packages install `codex-update-manager`. Debian, RPM, and
+pacman packages also install a companion `systemd --user` service.
 
-On non-systemd desktops, native package launches fall back to running
-`codex-update-manager check-now --if-stale` directly in the background.
+On Gentoo/OpenRC and other non-systemd desktops, native package launches fall
+back to running `codex-update-manager check-now --if-stale` directly in the
+background.
 
 It:
 
 - checks upstream `Codex.dmg` on daemon startup, every 6 hours, and in the
   background on app launch when stale
 - rebuilds a local native package with `/opt/codex-desktop/update-builder`
+- uses the host package format, including `app-editors/codex-desktop-bin` from
+  a local Portage overlay on Gentoo
 - waits for Electron to exit before installing a ready update
 - runs unprivileged; the final package install uses `pkexec` when a graphical
   polkit authentication agent is available, or keeps the package ready and
@@ -26,6 +29,10 @@ codex-update-manager status --json
 sed -n '1,160p' ~/.local/state/codex-update-manager/state.json
 sed -n '1,160p' ~/.local/state/codex-update-manager/service.log
 ```
+
+On Gentoo/OpenRC, skip the `systemctl --user` line and inspect
+`codex-update-manager status --json` plus
+`~/.local/state/codex-update-manager/service.log`.
 
 Runtime files:
 
@@ -143,6 +150,7 @@ and receive wrapper changes through normal package upgrades.
 AppImages do not bundle `codex-update-manager` or install packages in place.
 Instead, the AppImage runtime checks this repository's latest GitHub Release on
 launch, throttled to every 6 hours, and prompts once per newer release to
-download, verify, and replace the current AppImage. The replacement is used on
-the next launch, and the previous AppImage is kept as a timestamped backup next
-to the installed file.
+download, verify, and replace the current AppImage. Asset selection is strict:
+an x86_64 install accepts only the x86_64 AppImage and an ARM64 install accepts
+only the aarch64 AppImage. The replacement is used on the next launch, and the
+previous AppImage is kept as a timestamped backup next to the installed file.

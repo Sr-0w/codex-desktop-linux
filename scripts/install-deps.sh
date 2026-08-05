@@ -1,6 +1,6 @@
 #!/bin/bash
 # install-deps.sh — Install system dependencies for Codex Desktop Linux
-# Supports: Debian/Ubuntu (apt), Fedora 41+ (dnf5), Fedora <41 (dnf), Arch (pacman), openSUSE (zypper)
+# Supports: Debian/Ubuntu (apt), Fedora 41+ (dnf5), Fedora <41 (dnf), Arch (pacman), openSUSE (zypper), Gentoo (emerge)
 # Also installs the Rust toolchain (cargo) via rustup when not already present.
 set -Eeuo pipefail
 
@@ -158,7 +158,7 @@ ensure_nodejs_compatible() {
         return
     fi
 
-    if [ "$distro" = "dnf5" ]; then
+    if [ "$distro" = "dnf5" ] || [ "$distro" = "emerge" ]; then
         info "Skipping system Node.js check; install.sh provides the managed Node.js runtime"
         return
     fi
@@ -236,7 +236,9 @@ os_release_version_major() {
 }
 
 detect_distro() {
-    if os_release_matches debian ubuntu linuxmint pop elementary zorin && command -v apt-get &>/dev/null; then
+    if os_release_matches gentoo && command -v emerge &>/dev/null; then
+        echo "emerge"
+    elif os_release_matches debian ubuntu linuxmint pop elementary zorin && command -v apt-get &>/dev/null; then
         echo "apt"
     elif os_release_matches arch archlinux manjaro endeavouros artix && command -v pacman &>/dev/null; then
         echo "pacman"
@@ -256,6 +258,8 @@ detect_distro() {
         fi
     elif command -v apt-get &>/dev/null; then
         echo "apt"
+    elif command -v emerge &>/dev/null; then
+        echo "emerge"
     elif command -v dnf5 &>/dev/null; then
         echo "dnf5"
     elif command -v dnf &>/dev/null; then
@@ -336,6 +340,19 @@ install_zypper() {
     sudo zypper --non-interactive install -t pattern devel_basis
 }
 
+install_emerge() {
+    info "Detected Gentoo (emerge)"
+    sudo emerge --ask=n --noreplace \
+        app-arch/7zip \
+        app-arch/unzip \
+        app-arch/zstd \
+        dev-lang/python \
+        net-misc/curl \
+        sys-devel/gcc \
+        sys-devel/make \
+        sys-apps/portage
+}
+
 install_gui_prompt_helper() {
     local package
     package="$(preferred_gui_prompt_package)"
@@ -355,6 +372,13 @@ install_gui_prompt_helper() {
             ;;
         zypper)
             sudo zypper --non-interactive install "$package"
+            ;;
+        emerge)
+            case "$package" in
+                kdialog) package="kde-apps/kdialog" ;;
+                zenity) package="gnome-extra/zenity" ;;
+            esac
+            sudo emerge --ask=n --noreplace "$package"
             ;;
     esac
 }
@@ -491,6 +515,7 @@ case "$DISTRO" in
     dnf)     install_dnf    ;;
     pacman)  install_pacman ;;
     zypper)  install_zypper ;;
+    emerge)  install_emerge ;;
     *)
         error "Unsupported package manager. Install manually:
   # Debian/Ubuntu: install Node.js 20+ with npm/npx from NodeSource, nvm, or another compatible source, then:
@@ -500,7 +525,8 @@ case "$DISTRO" in
     && sudo dnf groupinstall 'Development Tools'
   sudo pacman -S nodejs npm python p7zip curl unzip zstd base-devel                 # Arch
   sudo zypper install nodejs-default npm-default python3 p7zip-full curl unzip      # openSUSE
-    && sudo zypper install -t pattern devel_basis"
+    && sudo zypper install -t pattern devel_basis
+  sudo emerge --ask app-arch/7zip app-arch/unzip app-arch/zstd dev-lang/python net-misc/curl sys-devel/gcc sys-devel/make  # Gentoo"
         ;;
 esac
 

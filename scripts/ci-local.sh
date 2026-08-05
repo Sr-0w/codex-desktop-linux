@@ -20,12 +20,13 @@ usage() {
 Usage: ./scripts/ci-local.sh [target...]
 
 Targets:
-  pr                         Run the standard pull-request suite: core, deb, rpm, pacman
+  pr                         Run the standard pull-request suite: core, deb, rpm, pacman, gentoo
   all                        Run pr plus install-deps, nix, and upstream
   core                       Run shell, Rust, Node patcher, and smoke tests
   deb                        Build and inspect the Debian package
   rpm                        Build and inspect the RPM package
   pacman                     Build and inspect the pacman package
+  gentoo                     Build and inspect the Gentoo overlay package
   install-deps               Test install-deps on Ubuntu 22.04, Ubuntu 24.04, and Debian 12
   install-deps:ubuntu-22.04  Test install-deps on one apt image
   install-deps:ubuntu-24.04  Test install-deps on one apt image
@@ -86,7 +87,7 @@ image_for_key() {
 
 image_key_for_job() {
     case "$1" in
-        core|deb|upstream) echo "ubuntu-24.04" ;;
+        core|deb|gentoo|upstream) echo "ubuntu-24.04" ;;
         rpm) echo "fedora-42" ;;
         pacman) echo "archlinux-base-devel" ;;
         nix) echo "nix" ;;
@@ -178,6 +179,7 @@ run_target() {
             run_target deb
             run_target rpm
             run_target pacman
+            run_target gentoo
             ;;
         all)
             run_target pr
@@ -185,7 +187,7 @@ run_target() {
             run_target nix
             run_target upstream
             ;;
-        core|deb|rpm|pacman|nix|upstream)
+        core|deb|rpm|pacman|gentoo|nix|upstream)
             run_container_job "$target" "$(image_key_for_job "$target")"
             ;;
         install-deps)

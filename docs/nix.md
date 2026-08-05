@@ -11,6 +11,12 @@ bot refreshes the upstream `Codex.dmg` hash and verifies the Nix package outputs
 in `main`. If you hit a hash mismatch right after an upstream release, wait for
 the next bot run and retry.
 
+The flake evaluates native packages for both `x86_64-linux` and
+`aarch64-linux`. ARM64 builds select Linux ARM64 Electron and rebuild all Rust
+and Node native components for the host architecture. The separately published
+Browser Use `node_repl` runtime is currently staged only on x86_64 because no
+verified Linux ARM64 primary-runtime archive is available to this project.
+
 ## Codex CLI Requirement
 
 Codex Desktop still needs the Codex CLI at runtime. The Nix package in this

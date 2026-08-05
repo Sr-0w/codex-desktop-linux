@@ -1,5 +1,7 @@
 "use strict";
 
+const { findMatchingBrace } = require("../shared.js");
+
 function applyLinuxQuitGuardPatch(currentSource) {
   let patchedSource = currentSource;
 
@@ -181,11 +183,43 @@ function applyLinuxExplicitTrayQuitPatch(currentSource) {
       return `{label:${labelExpression},click:()=>{${quitMarkerExpression}${electronVar}.app.quit()}}`;
     },
   );
+
+  let methodSearchIndex = 0;
+  const trayMenuMethodNeedle = "getNativeTrayMenuItems(){";
+  while ((methodSearchIndex = patchedSource.indexOf(trayMenuMethodNeedle, methodSearchIndex)) !== -1) {
+    const openIndex = methodSearchIndex + trayMenuMethodNeedle.length - 1;
+    const closeIndex = findMatchingBrace(patchedSource, openIndex);
+    if (closeIndex === -1) {
+      break;
+    }
+
+    const methodBody = patchedSource.slice(openIndex, closeIndex + 1);
+    const patchedMethodBody = methodBody.replace(
+      /click:\(\)=>\{([A-Za-z_$][\w$]*)\.app\.quit\(\)\}/g,
+      (_match, electronVar) =>
+        `click:()=>{${quitMarkerExpression}${electronVar}.app.quit()}`,
+    );
+    if (patchedMethodBody !== methodBody) {
+      patchedAny = true;
+      patchedSource =
+        `${patchedSource.slice(0, openIndex)}${patchedMethodBody}${patchedSource.slice(closeIndex + 1)}`;
+      methodSearchIndex = openIndex + patchedMethodBody.length;
+    } else {
+      methodSearchIndex = closeIndex + 1;
+    }
+  }
+
   if (
     !patchedAny &&
     !patchedTrayQuitRegex.test(patchedSource) &&
     patchedSource.includes("getNativeTrayMenuItems(){") &&
-    (patchedSource.includes("label:rB(") || patchedSource.includes("role:`quit`"))
+    (
+      patchedSource.includes("label:rB(") ||
+      patchedSource.includes("role:`quit`") ||
+      /getNativeTrayMenuItems\(\)\{[^]*?click:\(\)=>\{[A-Za-z_$][\w$]*\.app\.quit\(\)\}/.test(
+        patchedSource,
+      )
+    )
   ) {
     console.warn("WARN: Could not find tray quit menu handler — skipping Linux explicit tray quit patch");
   }

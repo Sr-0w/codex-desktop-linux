@@ -22,16 +22,21 @@ Manual inputs:
 
 ## Artifacts
 
-The workflow uploads:
+The workflow builds independently on native `x86_64` and `aarch64` runners and
+uploads:
 
 - `codex-desktop-linux-x86_64.AppImage`
+- `codex-desktop-linux-aarch64.AppImage`
 - `codex-desktop-linux-amd64.deb`
+- `codex-desktop-linux-arm64.deb`
 - `codex-desktop-linux-x86_64.rpm`
+- `codex-desktop-linux-aarch64.rpm`
 - `codex-desktop-linux-x86_64.pkg.tar.zst`
+- `codex-desktop-linux-aarch64.pkg.tar.zst`
+- `codex-desktop-linux-amd64.gentoo.tar.zst`
+- `codex-desktop-linux-arm64.gentoo.tar.zst`
 - matching `.sha256` checksum files
-- `upstream-dmg-metadata.json`
-- `patch-report.json`
-- `build-info.json`
+- architecture-suffixed upstream DMG, patch report, and build-info metadata
 
 Release asset names stay short for readability in GitHub. Exact package
 versions are stored in each native package and in `build-info.json`.
@@ -41,10 +46,20 @@ versions are stored in each native package and in `build-info.json`.
 Before release publication, the workflow must:
 
 - rebuild `codex-app` from the selected DMG
+- build the complete app independently on native x86_64 and ARM64 runners
+- validate Electron, Node.js, native addons, and bundled helper ELF architecture
+  with `scripts/ci/validate-app-architecture.sh`
 - validate required upstream patches with
   `scripts/ci/validate-patch-report.js --profile upstream-build`
 - inspect package contents for updater and update-builder payloads
 - build packages with the same generated app bundle
+
+The official primary-runtime archive used for Browser Use currently contains
+only a Linux x86_64 `node_repl`. When OpenAI publishes an ARM64 archive, set
+the repository variables `CODEX_BROWSER_USE_NODE_REPL_ARM64_URL` and
+`CODEX_BROWSER_USE_NODE_REPL_ARM64_SHA256`; ARM64 builds then validate and
+stage it through the same installer path. Until then, ARM64 releases are built
+without that privileged Browser Use runtime.
 
 ## Local Dry Run
 

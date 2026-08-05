@@ -9,6 +9,8 @@ function escapeRegExp(value) {
 function applyFramelessTitlebarBranchPatch(currentSource) {
   const primaryTitlebarRegex =
     /case`primary`:return ([A-Za-z_$][\w$]*)===`darwin`\?([A-Za-z_$][\w$]*)\?\{titleBarStyle:`hiddenInset`,trafficLightPosition:([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\}:\{vibrancy:`menu`,titleBarStyle:`hiddenInset`,trafficLightPosition:\3\(\4\)\}:\1===`win32`(\|\|\1===`linux`)?\?\{titleBarStyle:`hidden`,titleBarOverlay:([A-Za-z_$][\w$]*)\(\4\)\}:\{titleBarStyle:`default`\};/g;
+  const primaryQuickChatTitlebarRegex =
+    /case`quickChat`:case`primary`:return ([A-Za-z_$][\w$]*)===`darwin`\?((?:(?!:\1===`win32`\?).)+):\1===`win32`\?\{titleBarStyle:`hidden`,titleBarOverlay:([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\),\.\.\.([A-Za-z_$][\w$]*)===`quickChat`\?\{resizable:!0\}:\{\}\}:\1===`linux`\?\{titleBarStyle:`hidden`,titleBarOverlay:codexLinuxTitleBarOverlay\(\4\),\.\.\.\5===`quickChat`\?\{resizable:!0\}:\{\}\}:\{titleBarStyle:`default`,\.\.\.\5===`quickChat`\?\{resizable:!0\}:\{\}\};/g;
   let patchedSource = currentSource;
   let patchedTitlebar = false;
 
@@ -21,6 +23,24 @@ function applyFramelessTitlebarBranchPatch(currentSource) {
     },
   );
 
+  primaryQuickChatTitlebarRegex.lastIndex = 0;
+  patchedSource = patchedSource.replace(
+    primaryQuickChatTitlebarRegex,
+    (_match, platformAlias, darwinBranch, overlayHelperAlias, zoomAlias, appearanceAlias) => {
+      patchedTitlebar = true;
+      return `case\`quickChat\`:case\`primary\`:return ${platformAlias}===\`darwin\`?${darwinBranch}:${platformAlias}===\`win32\`?{titleBarStyle:\`hidden\`,titleBarOverlay:${overlayHelperAlias}(${zoomAlias}),...${appearanceAlias}===\`quickChat\`?{resizable:!0}:{}}:${platformAlias}===\`linux\`?{titleBarStyle:\`hidden\`,...${appearanceAlias}===\`quickChat\`?{resizable:!0}:{}}:{titleBarStyle:\`default\`,...${appearanceAlias}===\`quickChat\`?{resizable:!0}:{}};`;
+    },
+  );
+
+  const linuxOverlayWithRestRegex = new RegExp(
+    `([A-Za-z_$][\\w$]*)===\`linux\`\\?\\{titleBarStyle:\`hidden\`,titleBarOverlay:${escapeRegExp(LINUX_TITLEBAR_OVERLAY_HELPER)}\\([^)]*\\),(\\.\\.\\.[A-Za-z_$][\\w$]*===\`quickChat\`\\?\\{resizable:!0\\}:\\{\\})\\}:`,
+    "g",
+  );
+  patchedSource = patchedSource.replace(linuxOverlayWithRestRegex, (_match, platformAlias, restSpread) => {
+    patchedTitlebar = true;
+    return `${platformAlias}===\`linux\`?{titleBarStyle:\`hidden\`,${restSpread}}:`;
+  });
+
   const linuxOverlayRegex = new RegExp(
     `([A-Za-z_$][\\w$]*)===\`linux\`\\?\\{titleBarStyle:\`hidden\`,titleBarOverlay:${escapeRegExp(LINUX_TITLEBAR_OVERLAY_HELPER)}\\([^)]*\\)\\}:`,
     "g",
@@ -30,7 +50,15 @@ function applyFramelessTitlebarBranchPatch(currentSource) {
     return `${platformAlias}===\`linux\`?{titleBarStyle:\`hidden\`}:`;
   });
 
-  if (!patchedTitlebar && !/===`linux`\?\{titleBarStyle:`hidden`\}/.test(patchedSource)) {
+  const hasKdeNativePrimaryBranch =
+    /===`linux`\?[A-Za-z_$][\w$]*===`primary`\?\{titleBarStyle:`default`,autoHideMenuBar:!0\}:\{titleBarStyle:`hidden`,resizable:!0\}/.test(
+      patchedSource,
+    );
+  if (
+    !patchedTitlebar &&
+    !hasKdeNativePrimaryBranch &&
+    !/===`linux`\?\{titleBarStyle:`hidden`\}/.test(patchedSource)
+  ) {
     console.warn("WARN: Could not find primary BrowserWindow titlebar snippet - skipping frameless titlebar branch patch");
   }
 
@@ -64,15 +92,19 @@ function applyFramelessTitlebarOverlaySyncPatch(currentSource) {
   );
 
   patchedSource = patchedSource.replace(
-    /(install(?:Windows|ApplicationMenu)TitleBarOverlaySync)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{if\((?:\(process\.platform!==`win32`&&process\.platform!==`linux`\)|process\.platform!==`win32`&&process\.platform!==`linux`)\|\|\3!==`primary`\)return;let ([A-Za-z_$][\w$]*)=\(\)=>\{\2\.isDestroyed\(\)\|\|\2\.setTitleBarOverlay\(([A-Za-z_$][\w$]*)\(this\.windowZooms\.get\(\2\.id\)\)\)\};return ([A-Za-z_$][\w$]*)\.nativeTheme\.on\(`updated`,\4\),\4\(\),\(\)=>\{\6\.nativeTheme\.off\(`updated`,\4\)\}\}/g,
-    (_match, methodName, windowAlias, windowTypeAlias, updateAlias, overlayHelperAlias, electronAlias) =>
-      `${methodName}(${windowAlias},${windowTypeAlias}){if(process.platform!==\`win32\`||${windowTypeAlias}!==\`primary\`)return;let ${updateAlias}=()=>{${windowAlias}.isDestroyed()||${windowAlias}.setTitleBarOverlay(${overlayHelperAlias}(this.windowZooms.get(${windowAlias}.id)))};return ${electronAlias}.nativeTheme.on(\`updated\`,${updateAlias}),${updateAlias}(),()=>{${electronAlias}.nativeTheme.off(\`updated\`,${updateAlias})}}`,
+    /(install(?:Windows|ApplicationMenu)TitleBarOverlaySync)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{if\((?:\(process\.platform!==`win32`&&process\.platform!==`linux`\)|process\.platform!==`win32`&&process\.platform!==`linux`)\|\|\3!==`primary`(?:&&\3!==`quickChat`)?\)return;let ([A-Za-z_$][\w$]*)=\(\)=>\{\2\.isDestroyed\(\)\|\|\2\.setTitleBarOverlay\(([A-Za-z_$][\w$]*)\(this\.windowZooms\.get\(\2\.id\)\)\)\};return ([A-Za-z_$][\w$]*)\.nativeTheme\.on\(`updated`,\4\),\4\(\),\(\)=>\{\6\.nativeTheme\.off\(`updated`,\4\)\}\}/g,
+    (match, methodName, windowAlias, windowTypeAlias, updateAlias, overlayHelperAlias, electronAlias) => {
+      const windowTypeGuard = `${windowTypeAlias}!==\`primary\`${match.includes("!==`quickChat`") ? `&&${windowTypeAlias}!==\`quickChat\`` : ""}`;
+      return `${methodName}(${windowAlias},${windowTypeAlias}){if(process.platform!==\`win32\`||${windowTypeGuard})return;let ${updateAlias}=()=>{${windowAlias}.isDestroyed()||${windowAlias}.setTitleBarOverlay(${overlayHelperAlias}(this.windowZooms.get(${windowAlias}.id)))};return ${electronAlias}.nativeTheme.on(\`updated\`,${updateAlias}),${updateAlias}(),()=>{${electronAlias}.nativeTheme.off(\`updated\`,${updateAlias})}}`;
+    },
   );
 
   return patchedSource.replace(
-    /(install(?:Windows|ApplicationMenu)TitleBarOverlaySync)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{if\(\(process\.platform!==`win32`&&process\.platform!==`linux`\)\|\|\3!==`primary`\)return;let ([A-Za-z_$][\w$]*)=\(\)=>\{\2\.isDestroyed\(\)\|\|\2\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(this\.windowZooms\.get\(\2\.id\)\):([A-Za-z_$][\w$]*)\(this\.windowZooms\.get\(\2\.id\)\)\)\};return ([A-Za-z_$][\w$]*)\.nativeTheme\.on\(`updated`,\4\),\4\(\),\(\)=>\{\6\.nativeTheme\.off\(`updated`,\4\)\}\}/g,
-    (_match, methodName, windowAlias, windowTypeAlias, updateAlias, windowsOverlayHelperAlias, electronAlias) =>
-      `${methodName}(${windowAlias},${windowTypeAlias}){if(process.platform!==\`win32\`||${windowTypeAlias}!==\`primary\`)return;let ${updateAlias}=()=>{${windowAlias}.isDestroyed()||${windowAlias}.setTitleBarOverlay(${windowsOverlayHelperAlias}(this.windowZooms.get(${windowAlias}.id)))};return ${electronAlias}.nativeTheme.on(\`updated\`,${updateAlias}),${updateAlias}(),()=>{${electronAlias}.nativeTheme.off(\`updated\`,${updateAlias})}}`,
+    /(install(?:Windows|ApplicationMenu)TitleBarOverlaySync)\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{if\(\(process\.platform!==`win32`&&process\.platform!==`linux`\)\|\|\3!==`primary`(?:&&\3!==`quickChat`)?\)return;let ([A-Za-z_$][\w$]*)=\(\)=>\{\2\.isDestroyed\(\)\|\|\2\.setTitleBarOverlay\(process\.platform===`linux`\?codexLinuxTitleBarOverlay\(this\.windowZooms\.get\(\2\.id\)\):([A-Za-z_$][\w$]*)\(this\.windowZooms\.get\(\2\.id\)\)\)\};return ([A-Za-z_$][\w$]*)\.nativeTheme\.on\(`updated`,\4\),\4\(\),\(\)=>\{\6\.nativeTheme\.off\(`updated`,\4\)\}\}/g,
+    (match, methodName, windowAlias, windowTypeAlias, updateAlias, windowsOverlayHelperAlias, electronAlias) => {
+      const windowTypeGuard = `${windowTypeAlias}!==\`primary\`${match.includes("!==`quickChat`") ? `&&${windowTypeAlias}!==\`quickChat\`` : ""}`;
+      return `${methodName}(${windowAlias},${windowTypeAlias}){if(process.platform!==\`win32\`||${windowTypeGuard})return;let ${updateAlias}=()=>{${windowAlias}.isDestroyed()||${windowAlias}.setTitleBarOverlay(${windowsOverlayHelperAlias}(this.windowZooms.get(${windowAlias}.id)))};return ${electronAlias}.nativeTheme.on(\`updated\`,${updateAlias}),${updateAlias}(),()=>{${electronAlias}.nativeTheme.off(\`updated\`,${updateAlias})}}`;
+    },
   );
 }
 

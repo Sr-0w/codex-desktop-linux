@@ -724,6 +724,7 @@ stage_update_builder_bundle() {
         "$update_builder_root/scripts/patches" \
         "$update_builder_root/launcher" \
         "$update_builder_root/linux-features" \
+        "$update_builder_root/packaging/gentoo" \
         "$update_builder_root/packaging/linux" \
         "$update_builder_root/assets"
 
@@ -745,6 +746,7 @@ stage_update_builder_bundle() {
     cp "$REPO_DIR/scripts/build-deb.sh" "$update_builder_root/scripts/build-deb.sh"
     cp "$REPO_DIR/scripts/build-rpm.sh" "$update_builder_root/scripts/build-rpm.sh"
     cp "$REPO_DIR/scripts/build-pacman.sh" "$update_builder_root/scripts/build-pacman.sh"
+    cp "$REPO_DIR/scripts/build-gentoo-bin.sh" "$update_builder_root/scripts/build-gentoo-bin.sh"
     cp "$REPO_DIR/scripts/rebuild-candidate.sh" "$update_builder_root/scripts/rebuild-candidate.sh"
     cp "$REPO_DIR/scripts/patch-linux-window-ui.js" "$update_builder_root/scripts/patch-linux-window-ui.js"
     cp -r "$REPO_DIR/scripts/patches/." "$update_builder_root/scripts/patches/"
@@ -778,6 +780,10 @@ stage_update_builder_bundle() {
         "$update_builder_root/packaging/linux/codex-update-manager-user-service.sh"
     cp "$REPO_DIR/packaging/linux/PKGBUILD.template" "$update_builder_root/packaging/linux/PKGBUILD.template"
     cp "$REPO_DIR/packaging/linux/codex-desktop.install" "$update_builder_root/packaging/linux/codex-desktop.install"
+    cp "$REPO_DIR/packaging/gentoo/codex-desktop-bin.ebuild.template" \
+        "$update_builder_root/packaging/gentoo/codex-desktop-bin.ebuild.template"
+    cp "$REPO_DIR/packaging/gentoo/metadata.xml" "$update_builder_root/packaging/gentoo/metadata.xml"
+    cp "$REPO_DIR/packaging/gentoo/README.md" "$update_builder_root/packaging/gentoo/README.md"
     cp "$UPDATER_SERVICE_SOURCE" "$update_builder_root/packaging/linux/codex-update-manager.service"
     cp "$REPO_DIR/packaging/linux/codex-update-manager.postinst" "$update_builder_root/packaging/linux/codex-update-manager.postinst"
     cp "$REPO_DIR/packaging/linux/codex-update-manager.prerm" "$update_builder_root/packaging/linux/codex-update-manager.prerm"

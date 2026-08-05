@@ -12,6 +12,9 @@ use std::{
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
 const PACKAGE_NAME: &str = "codex-desktop";
+const GENTOO_CATEGORY: &str = "app-editors";
+const GENTOO_PACKAGE_NAME: &str = "codex-desktop-bin";
+const GENTOO_REPO_NAME: &str = "codex-desktop-linux";
 const INSTALLED_UPDATER_BINARY: &str = "/usr/bin/codex-update-manager";
 const APT_CANDIDATES: &[&str] = &["/usr/bin/apt", "/bin/apt"];
 const DNF_CANDIDATES: &[&str] = &["/usr/bin/dnf", "/bin/dnf", "/usr/bin/dnf5", "/bin/dnf5"];
@@ -21,7 +24,11 @@ const DPKG_QUERY_CANDIDATES: &[&str] = &["/usr/bin/dpkg-query", "/bin/dpkg-query
 const RPM_CANDIDATES: &[&str] = &["/usr/bin/rpm", "/bin/rpm"];
 const ZYPPER_CANDIDATES: &[&str] = &["/usr/bin/zypper", "/bin/zypper"];
 const PACMAN_CANDIDATES: &[&str] = &["/usr/bin/pacman", "/bin/pacman"];
+const EMERGE_CANDIDATES: &[&str] = &["/usr/bin/emerge", "/bin/emerge"];
+const PORTAGEQ_CANDIDATES: &[&str] = &["/usr/bin/portageq", "/bin/portageq"];
+const TAR_CANDIDATES: &[&str] = &["/usr/bin/tar", "/bin/tar"];
 const VERCMP_CANDIDATES: &[&str] = &["/usr/bin/vercmp", "/bin/vercmp"];
+const GENTOO_PACKAGE_SUFFIX: &str = ".gentoo.tar.zst";
 const PACMAN_PACKAGE_SUFFIXES: &[&str] = &[
     ".pkg.tar.zst",
     ".pkg.tar.xz",
@@ -38,19 +45,22 @@ pub enum PackageKind {
     Deb,
     Rpm,
     Pacman,
+    Gentoo,
 }
 
 impl PackageKind {
     pub fn detect() -> Self {
-        detect_package_kind(
-            program_exists(PACMAN_CANDIDATES, "pacman"),
-            program_exists(DPKG_CANDIDATES, "dpkg"),
-            program_exists(RPM_CANDIDATES, "rpm"),
-            installed_pacman_version() != "unknown",
-            installed_deb_version() != "unknown",
-            installed_rpm_version() != "unknown",
-            os_release_fields(),
-        )
+        detect_package_kind(PackageDetection {
+            has_pacman: program_exists(PACMAN_CANDIDATES, "pacman"),
+            has_emerge: program_exists(EMERGE_CANDIDATES, "emerge"),
+            has_dpkg: program_exists(DPKG_CANDIDATES, "dpkg"),
+            has_rpm: program_exists(RPM_CANDIDATES, "rpm"),
+            pacman_installed: installed_pacman_version() != "unknown",
+            gentoo_installed: installed_gentoo_version() != "unknown",
+            deb_installed: installed_deb_version() != "unknown",
+            rpm_installed: installed_rpm_version() != "unknown",
+            os_release: os_release_fields(),
+        })
     }
 
     pub fn from_path(path: &Path) -> Self {
@@ -58,6 +68,9 @@ impl PackageKind {
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("");
+        if is_gentoo_package_file_name(file_name) {
+            return Self::Gentoo;
+        }
         if is_pacman_package_file_name(file_name) {
             return Self::Pacman;
         }
@@ -69,17 +82,25 @@ impl PackageKind {
     }
 }
 
-fn detect_package_kind(
+#[derive(Default)]
+struct PackageDetection {
     has_pacman: bool,
+    has_emerge: bool,
     has_dpkg: bool,
     has_rpm: bool,
     pacman_installed: bool,
+    gentoo_installed: bool,
     deb_installed: bool,
     rpm_installed: bool,
     os_release: Option<(String, String)>,
-) -> PackageKind {
-    if let Some((id, id_like)) = os_release {
+}
+
+fn detect_package_kind(detection: PackageDetection) -> PackageKind {
+    if let Some((id, id_like)) = detection.os_release {
         let fields = [id.as_str(), id_like.as_str()];
+        if os_release_matches(&fields, &["gentoo"]) {
+            return PackageKind::Gentoo;
+        }
         if os_release_matches(
             &fields,
             &["arch", "archlinux", "manjaro", "endeavouros", "artix"],
@@ -117,22 +138,27 @@ fn detect_package_kind(
         }
     }
 
-    if pacman_installed {
+    if detection.pacman_installed {
         return PackageKind::Pacman;
     }
-    if deb_installed {
+    if detection.gentoo_installed {
+        return PackageKind::Gentoo;
+    }
+    if detection.deb_installed {
         return PackageKind::Deb;
     }
-    if rpm_installed {
+    if detection.rpm_installed {
         return PackageKind::Rpm;
     }
 
-    if has_dpkg {
+    if detection.has_dpkg {
         PackageKind::Deb
-    } else if has_rpm {
+    } else if detection.has_rpm {
         PackageKind::Rpm
-    } else if has_pacman {
+    } else if detection.has_pacman {
         PackageKind::Pacman
+    } else if detection.has_emerge {
+        PackageKind::Gentoo
     } else {
         PackageKind::Deb
     }
@@ -172,6 +198,7 @@ pub fn installed_package_version() -> String {
         PackageKind::Deb => installed_deb_version(),
         PackageKind::Rpm => installed_rpm_version(),
         PackageKind::Pacman => installed_pacman_version(),
+        PackageKind::Gentoo => installed_gentoo_version(),
     }
 }
 
@@ -202,6 +229,26 @@ fn installed_pacman_version() -> String {
         Ok(output) if output.status.success() => parse_pacman_installed_version(output.stdout),
         _ => "unknown".to_string(),
     }
+}
+
+fn installed_gentoo_version() -> String {
+    installed_gentoo_version_from_vdb(Path::new("/var/db/pkg"))
+}
+
+fn installed_gentoo_version_from_vdb(vdb_root: &Path) -> String {
+    let category_dir = vdb_root.join(GENTOO_CATEGORY);
+    let Ok(entries) = fs::read_dir(category_dir) else {
+        return "unknown".to_string();
+    };
+    let prefix = format!("{GENTOO_PACKAGE_NAME}-");
+    let mut versions = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter_map(|name| name.strip_prefix(&prefix).map(str::to_string))
+        .filter(|version| !version.is_empty())
+        .collect::<Vec<_>>();
+    versions.sort();
+    versions.pop().unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Installs a rebuilt Debian package on the local machine.
@@ -252,6 +299,14 @@ pub fn install_pacman(path: &Path) -> Result<()> {
     run_install(&mut command).context("pacman -U failed")
 }
 
+/// Installs a rebuilt Gentoo overlay artifact on the local machine.
+pub fn install_gentoo(path: &Path) -> Result<()> {
+    let stable = stable_validated_package(path)
+        .with_context(|| format!("Failed to stabilize Gentoo package {}", path.display()))?;
+    ensure_upgrade_path_gentoo(stable.path())?;
+    merge_gentoo_package(stable.path()).context("Gentoo package install failed")
+}
+
 /// Builds the `pkexec` command used for privileged package installation.
 pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
     let updater_binary = updater_binary_for_privileged_install(current_exe);
@@ -259,6 +314,7 @@ pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
         PackageKind::Rpm => "install-rpm",
         PackageKind::Deb => "install-deb",
         PackageKind::Pacman => "install-pacman",
+        PackageKind::Gentoo => "install-gentoo",
     };
     let mut command = Command::new("pkexec");
     command
@@ -350,6 +406,10 @@ pub(crate) fn ensure_codex_package(path: &Path) -> Result<()> {
             pacman_package_version(path)?;
             ensure_package_name(&pacman_package_name(path)?, path)
         }
+        PackageKind::Gentoo => {
+            ensure_gentoo_package(path)?;
+            Ok(())
+        }
     }
 }
 
@@ -408,6 +468,7 @@ fn stable_file_name(kind: PackageKind, path: &Path) -> Result<String> {
     match kind {
         PackageKind::Deb => Ok("codex-desktop.deb".to_string()),
         PackageKind::Rpm => Ok("codex-desktop.rpm".to_string()),
+        PackageKind::Gentoo => Ok("codex-desktop.gentoo.tar.zst".to_string()),
         PackageKind::Pacman => path
             .file_name()
             .with_context(|| format!("Pacman package path has no file name: {}", path.display()))
@@ -723,6 +784,293 @@ fn pacman_package_version(path: &Path) -> Result<String> {
     Ok(version_release.to_string())
 }
 
+fn ensure_gentoo_package(path: &Path) -> Result<()> {
+    let package_name = gentoo_artifact_metadata_field(path, "package-name")?;
+    anyhow::ensure!(
+        package_name == GENTOO_PACKAGE_NAME,
+        "Refusing to install Gentoo package {package_name} from {}; expected {GENTOO_PACKAGE_NAME}",
+        path.display()
+    );
+    let category = gentoo_artifact_metadata_field(path, "category")?;
+    anyhow::ensure!(
+        category == GENTOO_CATEGORY,
+        "Refusing to install Gentoo category {category} from {}; expected {GENTOO_CATEGORY}",
+        path.display()
+    );
+    let version = gentoo_package_version(path)?;
+    anyhow::ensure!(
+        parse_generated_package_version(&version).is_some(),
+        "Gentoo package version {version} from {} is not a generated Codex package version",
+        path.display()
+    );
+    let distfile = gentoo_artifact_metadata_field(path, "distfile")?;
+    anyhow::ensure!(
+        distfile == format!("{GENTOO_PACKAGE_NAME}-{version}.tar.zst"),
+        "Gentoo distfile {distfile} from {} does not match package version {version}",
+        path.display()
+    );
+    Ok(())
+}
+
+fn gentoo_package_version(path: &Path) -> Result<String> {
+    gentoo_artifact_metadata_field(path, "package-version")
+}
+
+fn gentoo_artifact_metadata_field(path: &Path, field: &str) -> Result<String> {
+    let metadata_path = gentoo_artifact_entry(path, &format!("metadata/{field}"))?;
+    let output = Command::new(program_path(TAR_CANDIDATES, "tar"))
+        .args(["-I", "zstd", "-xOf"])
+        .arg(path)
+        .arg(&metadata_path)
+        .output()
+        .with_context(|| {
+            format!(
+                "Failed to read Gentoo artifact metadata from {}",
+                path.display()
+            )
+        })?;
+    anyhow::ensure!(
+        output.status.success(),
+        "tar could not read {metadata_path} from {}",
+        path.display()
+    );
+    let value = String::from_utf8(output.stdout)
+        .with_context(|| format!("Gentoo artifact metadata {field} is not UTF-8"))?
+        .trim()
+        .to_string();
+    anyhow::ensure!(
+        !value.is_empty(),
+        "Gentoo artifact metadata {field} is empty in {}",
+        path.display()
+    );
+    Ok(value)
+}
+
+fn gentoo_artifact_entry(path: &Path, suffix: &str) -> Result<String> {
+    let output = Command::new(program_path(TAR_CANDIDATES, "tar"))
+        .args(["-I", "zstd", "-tf"])
+        .arg(path)
+        .output()
+        .with_context(|| format!("Failed to inspect Gentoo artifact {}", path.display()))?;
+    anyhow::ensure!(
+        output.status.success(),
+        "tar could not list Gentoo artifact {}",
+        path.display()
+    );
+    let entries = String::from_utf8(output.stdout)
+        .context("tar returned non-UTF8 Gentoo artifact entries")?;
+    entries
+        .lines()
+        .find(|entry| entry == &suffix || entry.ends_with(&format!("/{suffix}")))
+        .map(str::to_string)
+        .with_context(|| format!("Gentoo artifact {} is missing {suffix}", path.display()))
+}
+
+pub(crate) fn merge_gentoo_package(path: &Path) -> Result<()> {
+    let extract_dir = create_private_temp_dir()?;
+    let result = (|| {
+        let mut extract = tar_extract_command(path, &extract_dir);
+        run_install(&mut extract).context("Failed to unpack Gentoo overlay artifact")?;
+        let artifact_root = gentoo_artifact_root(&extract_dir)?;
+        install_gentoo_artifact_root(&artifact_root)
+    })();
+    let _ = fs::remove_dir_all(&extract_dir);
+    result
+}
+
+fn tar_extract_command(path: &Path, destination: &Path) -> Command {
+    let mut command = Command::new(program_path(TAR_CANDIDATES, "tar"));
+    command
+        .args(["-I", "zstd", "-xf"])
+        .arg(path)
+        .arg("-C")
+        .arg(destination);
+    command
+}
+
+fn gentoo_artifact_root(extract_dir: &Path) -> Result<PathBuf> {
+    if extract_dir.join("metadata/package-name").is_file() {
+        return Ok(extract_dir.to_path_buf());
+    }
+    let mut candidates = Vec::new();
+    for entry in fs::read_dir(extract_dir)
+        .with_context(|| format!("Failed to read {}", extract_dir.display()))?
+    {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() && entry.path().join("metadata/package-name").is_file() {
+            candidates.push(entry.path());
+        }
+    }
+    anyhow::ensure!(
+        candidates.len() == 1,
+        "Gentoo artifact must contain exactly one bundle root with metadata/package-name"
+    );
+    Ok(candidates.remove(0))
+}
+
+fn install_gentoo_artifact_root(root: &Path) -> Result<()> {
+    let package_name = read_trimmed(root.join("metadata/package-name"))?;
+    anyhow::ensure!(
+        package_name == GENTOO_PACKAGE_NAME,
+        "Gentoo artifact package is {package_name}; expected {GENTOO_PACKAGE_NAME}"
+    );
+    let category = read_trimmed(root.join("metadata/category"))?;
+    anyhow::ensure!(
+        category == GENTOO_CATEGORY,
+        "Gentoo artifact category is {category}; expected {GENTOO_CATEGORY}"
+    );
+    let repo_name = read_trimmed(root.join("metadata/repo-name"))?;
+    anyhow::ensure!(
+        repo_name == GENTOO_REPO_NAME,
+        "Gentoo artifact repo is {repo_name}; expected {GENTOO_REPO_NAME}"
+    );
+    let version = read_trimmed(root.join("metadata/package-version"))?;
+    let atom = read_trimmed(root.join("metadata/atom"))?;
+    let distfile = read_trimmed(root.join("metadata/distfile"))?;
+    anyhow::ensure!(
+        atom == format!("={GENTOO_CATEGORY}/{GENTOO_PACKAGE_NAME}-{version}"),
+        "Gentoo artifact atom {atom} does not match version {version}"
+    );
+
+    let distdir = gentoo_distdir();
+    fs::create_dir_all(&distdir)
+        .with_context(|| format!("Failed to create Portage distdir {}", distdir.display()))?;
+    copy_file(
+        &root.join("distfiles").join(&distfile),
+        &distdir.join(&distfile),
+    )?;
+    set_world_readable_file_permissions(&distdir.join(&distfile))?;
+
+    let repo_root = Path::new("/var/db/repos").join(&repo_name);
+    copy_gentoo_overlay(&root.join("overlay"), &repo_root)?;
+    write_gentoo_repos_conf(&repo_name, &repo_root)?;
+    refresh_gentoo_metadata(&repo_name);
+
+    let mut command = gentoo_emerge_command(&atom);
+    run_install(&mut command).with_context(|| format!("emerge {atom} failed"))
+}
+
+fn read_trimmed(path: PathBuf) -> Result<String> {
+    let value =
+        fs::read_to_string(&path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let value = value.trim().to_string();
+    anyhow::ensure!(!value.is_empty(), "{} is empty", path.display());
+    Ok(value)
+}
+
+fn copy_gentoo_overlay(source: &Path, destination: &Path) -> Result<()> {
+    anyhow::ensure!(
+        source.join("profiles/repo_name").is_file(),
+        "Gentoo overlay source is missing profiles/repo_name: {}",
+        source.display()
+    );
+    if destination.exists() {
+        fs::remove_dir_all(destination)
+            .with_context(|| format!("Failed to replace {}", destination.display()))?;
+    }
+    copy_dir_recursive(source, destination)
+}
+
+fn copy_dir_recursive(source: &Path, destination: &Path) -> Result<()> {
+    fs::create_dir_all(destination)
+        .with_context(|| format!("Failed to create {}", destination.display()))?;
+    for entry in
+        fs::read_dir(source).with_context(|| format!("Failed to read {}", source.display()))?
+    {
+        let entry = entry?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&source_path, &destination_path)?;
+        } else {
+            copy_file(&source_path, &destination_path)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_file(source: &Path, destination: &Path) -> Result<()> {
+    let parent = destination
+        .parent()
+        .with_context(|| format!("{} has no parent directory", destination.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("Failed to create {}", parent.display()))?;
+    fs::copy(source, destination).with_context(|| {
+        format!(
+            "Failed to copy {} to {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_world_readable_file_permissions(path: &Path) -> Result<()> {
+    fs::set_permissions(path, fs::Permissions::from_mode(0o644))
+        .with_context(|| format!("Failed to set permissions on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_world_readable_file_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn write_gentoo_repos_conf(repo_name: &str, repo_root: &Path) -> Result<()> {
+    let repos_conf_dir = Path::new("/etc/portage/repos.conf");
+    fs::create_dir_all(repos_conf_dir)
+        .with_context(|| format!("Failed to create {}", repos_conf_dir.display()))?;
+    let repos_conf = repos_conf_dir.join(format!("{repo_name}.conf"));
+    let content = format!(
+        "[{repo_name}]\nlocation = {}\nmasters = gentoo\nauto-sync = no\n",
+        repo_root.display()
+    );
+    fs::write(&repos_conf, content)
+        .with_context(|| format!("Failed to write {}", repos_conf.display()))
+}
+
+fn gentoo_distdir() -> PathBuf {
+    match Command::new(program_path(PORTAGEQ_CANDIDATES, "portageq"))
+        .args(["envvar", "DISTDIR"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !value.is_empty() {
+                return PathBuf::from(value);
+            }
+        }
+        _ => {}
+    }
+    PathBuf::from("/var/cache/distfiles")
+}
+
+fn refresh_gentoo_metadata(repo_name: &str) {
+    let egencache = program_path(&["/usr/bin/egencache", "/bin/egencache"], "egencache");
+    let _ = Command::new(egencache)
+        .args(["--repo", repo_name, "--update"])
+        .status();
+}
+
+fn gentoo_emerge_command(atom: &str) -> Command {
+    let mut command = Command::new(program_path(EMERGE_CANDIDATES, "emerge"));
+    command.args(["--oneshot", "--verbose", atom]);
+    command
+}
+
+fn ensure_upgrade_path_gentoo(path: &Path) -> Result<()> {
+    let installed = installed_gentoo_version();
+    if installed == "unknown" {
+        return Ok(());
+    }
+
+    let candidate = gentoo_package_version(path)?;
+    anyhow::ensure!(
+        generated_package_version_is_newer(&candidate, &installed),
+        "Refusing to install non-newer Gentoo package version {candidate} over installed version {installed}"
+    );
+    Ok(())
+}
+
 fn is_version_newer_pacman(candidate: &str, installed: &str) -> Result<bool> {
     let output = Command::new(program_path(VERCMP_CANDIDATES, "vercmp"))
         .args([candidate, installed])
@@ -788,6 +1136,12 @@ fn strip_pacman_package_suffix(file_name: &str) -> Option<&str> {
 
 fn is_pacman_package_file_name(file_name: &str) -> bool {
     strip_pacman_package_suffix(file_name).is_some()
+}
+
+fn is_gentoo_package_file_name(file_name: &str) -> bool {
+    file_name
+        .to_ascii_lowercase()
+        .ends_with(GENTOO_PACKAGE_SUFFIX)
 }
 
 fn program_exists(candidates: &[&str], fallback: &str) -> bool {
@@ -966,6 +1320,10 @@ mod tests {
             "codex-desktop.rpm"
         );
         assert_eq!(
+            stable_file_name(PackageKind::Gentoo, Path::new("-evil.gentoo.tar.zst"))?,
+            "codex-desktop.gentoo.tar.zst"
+        );
+        assert_eq!(
             stable_file_name(
                 PackageKind::Pacman,
                 Path::new("/tmp/codex-desktop-2026.03.30-1-x86_64.pkg.tar.zst")
@@ -1009,6 +1367,16 @@ mod tests {
     }
 
     #[test]
+    fn package_kind_from_path_detects_gentoo_before_generic_tar_zst() {
+        assert_eq!(
+            PackageKind::from_path(Path::new(
+                "/tmp/codex-desktop-2026.03.30-amd64.gentoo.tar.zst"
+            )),
+            PackageKind::Gentoo
+        );
+    }
+
+    #[test]
     fn package_kind_from_path_detects_pacman_xz() {
         assert_eq!(
             PackageKind::from_path(Path::new(
@@ -1021,15 +1389,13 @@ mod tests {
     #[test]
     fn detection_prefers_arch_os_release_even_if_rpm_command_exists() {
         assert_eq!(
-            detect_package_kind(
-                true,
-                false,
-                true,
-                true,
-                false,
-                false,
-                Some(("arch".to_string(), "".to_string())),
-            ),
+            detect_package_kind(PackageDetection {
+                has_pacman: true,
+                has_rpm: true,
+                pacman_installed: true,
+                os_release: Some(("arch".to_string(), "".to_string())),
+                ..Default::default()
+            }),
             PackageKind::Pacman
         );
     }
@@ -1037,31 +1403,54 @@ mod tests {
     #[test]
     fn detection_prefers_fedora_os_release_even_if_deb_package_is_installed() {
         assert_eq!(
-            detect_package_kind(
-                false,
-                true,
-                true,
-                false,
-                true,
-                false,
-                Some(("fedora".to_string(), "rhel".to_string())),
-            ),
+            detect_package_kind(PackageDetection {
+                has_dpkg: true,
+                has_rpm: true,
+                deb_installed: true,
+                os_release: Some(("fedora".to_string(), "rhel".to_string())),
+                ..Default::default()
+            }),
             PackageKind::Rpm
+        );
+    }
+
+    #[test]
+    fn detection_prefers_gentoo_os_release() {
+        assert_eq!(
+            detect_package_kind(PackageDetection {
+                has_pacman: true,
+                has_emerge: true,
+                has_dpkg: true,
+                has_rpm: true,
+                os_release: Some(("gentoo".to_string(), "".to_string())),
+                ..Default::default()
+            }),
+            PackageKind::Gentoo
+        );
+    }
+
+    #[test]
+    fn detection_uses_installed_gentoo_package_before_tool_fallbacks() {
+        assert_eq!(
+            detect_package_kind(PackageDetection {
+                has_dpkg: true,
+                has_rpm: true,
+                gentoo_installed: true,
+                ..Default::default()
+            }),
+            PackageKind::Gentoo
         );
     }
 
     #[test]
     fn detection_uses_arch_os_release_when_nothing_is_installed() {
         assert_eq!(
-            detect_package_kind(
-                true,
-                false,
-                true,
-                false,
-                false,
-                false,
-                Some(("arch".to_string(), "".to_string())),
-            ),
+            detect_package_kind(PackageDetection {
+                has_pacman: true,
+                has_rpm: true,
+                os_release: Some(("arch".to_string(), "".to_string())),
+                ..Default::default()
+            }),
             PackageKind::Pacman
         );
     }
@@ -1069,15 +1458,12 @@ mod tests {
     #[test]
     fn detection_uses_debian_os_release_before_rpm_command_presence() {
         assert_eq!(
-            detect_package_kind(
-                false,
-                true,
-                true,
-                false,
-                false,
-                false,
-                Some(("ubuntu".to_string(), "debian".to_string())),
-            ),
+            detect_package_kind(PackageDetection {
+                has_dpkg: true,
+                has_rpm: true,
+                os_release: Some(("ubuntu".to_string(), "debian".to_string())),
+                ..Default::default()
+            }),
             PackageKind::Deb
         );
     }
@@ -1085,15 +1471,12 @@ mod tests {
     #[test]
     fn detection_uses_rpm_os_release_before_pacman_command_presence() {
         assert_eq!(
-            detect_package_kind(
-                true,
-                false,
-                true,
-                false,
-                false,
-                false,
-                Some(("fedora".to_string(), "rhel".to_string())),
-            ),
+            detect_package_kind(PackageDetection {
+                has_pacman: true,
+                has_rpm: true,
+                os_release: Some(("fedora".to_string(), "rhel".to_string())),
+                ..Default::default()
+            }),
             PackageKind::Rpm
         );
     }
@@ -1128,6 +1511,28 @@ mod tests {
                 "install-pacman",
                 "--path",
                 "/tmp/update.pkg.tar.zst"
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_pkexec_command_for_privileged_gentoo_install() {
+        let command = pkexec_command(
+            Path::new("/usr/bin/codex-update-manager"),
+            Path::new("/tmp/update.gentoo.tar.zst"),
+        );
+        let args: Vec<_> = command
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "--disable-internal-agent",
+                "/usr/bin/codex-update-manager",
+                "install-gentoo",
+                "--path",
+                "/tmp/update.gentoo.tar.zst"
             ]
         );
     }
@@ -1202,6 +1607,20 @@ mod tests {
             parse_pacman_installed_version(b"codex-desktop 2026.04.02.120000-1\n".to_vec()),
             "2026.04.02.120000-1"
         );
+    }
+
+    #[test]
+    fn parses_gentoo_installed_version_from_vdb() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let category = temp.path().join(GENTOO_CATEGORY);
+        std::fs::create_dir_all(category.join("codex-desktop-bin-2026.04.02.120000"))?;
+        std::fs::create_dir_all(category.join("codex-desktop-bin-2026.04.03.090000"))?;
+
+        assert_eq!(
+            installed_gentoo_version_from_vdb(temp.path()),
+            "2026.04.03.090000"
+        );
+        Ok(())
     }
 
     #[test]

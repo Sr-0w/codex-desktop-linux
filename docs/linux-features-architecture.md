@@ -66,8 +66,8 @@ The build pipeline loads enabled features in these phases:
    `codex-app/`.
 3. Legacy staging: optional `stage.sh` hooks run for features that still need
    custom install-time logic.
-4. Native packaging: optional package hooks can mutate the `.deb`, `.rpm`, or
-   pacman staging root.
+4. Native packaging: optional package hooks can mutate the `.deb`, `.rpm`,
+   pacman, or Gentoo staging root.
 5. Runtime: the launcher consumes staged environment files, prelaunch hooks,
    Electron args, and cold-start hooks.
 
@@ -138,7 +138,7 @@ File modes are optional, but when present they must be quoted octal strings
 such as `"0644"` or `"0755"`; numeric JSON modes are rejected. Declared modes
 are recorded in the staged manifest and restored after native package
 permission normalization, so restrictive resource modes survive `.deb`, `.rpm`,
-and pacman packaging.
+pacman, and Gentoo packaging.
 
 Use `runtimeHooks` for launcher-visible hooks:
 

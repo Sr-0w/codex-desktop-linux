@@ -117,21 +117,98 @@ function avatarApplyInputShapePatch() {
   return "codexLinuxApplyAvatarInputShape(e){if(process.platform!==`linux`||e==null||e.isDestroyed()||typeof e.setShape!=`function`||typeof this.codexLinuxIsAvatarShapeBackend==`function`&&!this.codexLinuxIsAvatarShapeBackend())return!1;try{let t=this.codexLinuxBuildAvatarInputShape(e);if(t==null)return!1;let n=JSON.stringify(t);if(this.codexLinuxAvatarInputShapeKey===n)return!0;e.setShape(t),this.codexLinuxAvatarInputShapeKey=n;return!0}catch{this.codexLinuxAvatarInputShapeKey=null;return!1}}";
 }
 
+const LINUX_AVATAR_OVERLAY_TITLE = "Codex Pet Overlay";
+
+function hasLinuxAvatarWindowPolicy(source) {
+  const createMethod = findAvatarOverlayMethod(source, /async createWindow\([^)]*\)\{/);
+  if (createMethod == null) {
+    return false;
+  }
+  return (
+    createMethod.text.includes(
+      `title:process.platform===\`linux\`?\`${LINUX_AVATAR_OVERLAY_TITLE}\`:`,
+    ) &&
+    createMethod.text.includes(
+      "appearance:`avatarOverlay`,lockTitle:process.platform===`linux`,",
+    ) &&
+    createMethod.text.includes("focusable:process.platform===`linux`?!0:!1") &&
+    createMethod.text.includes(".setAlwaysOnTop(!0)") &&
+    createMethod.text.includes(".setSkipTaskbar(!0)")
+  );
+}
+
 function patchAvatarOverlayWindowOptions(source) {
-  const windowOptionsPatch =
-    "appearance:`avatarOverlay`,alwaysOnTop:process.platform===`linux`,skipTaskbar:process.platform===`linux`,focusable:process.platform===`linux`?!0:!1";
-  if (source.includes(windowOptionsPatch)) {
+  const createMethod = findAvatarOverlayMethod(source, /async createWindow\([^)]*\)\{/);
+  if (createMethod == null) {
     return source;
   }
-  return source
-    .replace(
-      "appearance:`avatarOverlay`,focusable:process.platform===`linux`?!0:!1",
-      windowOptionsPatch,
-    )
-    .replace(
-      "appearance:`avatarOverlay`,focusable:!1",
-      windowOptionsPatch,
+
+  let methodText = createMethod.text;
+  const createCallMarker = ".windowManager.createWindow({";
+  const createCallIndex = methodText.indexOf(createCallMarker);
+  if (createCallIndex === -1) {
+    return source;
+  }
+  const optionsOpenIndex = createCallIndex + createCallMarker.length - 1;
+  const optionsCloseIndex = findMatchingBrace(methodText, optionsOpenIndex);
+  if (optionsCloseIndex === -1) {
+    return source;
+  }
+
+  const callPrefix = methodText.slice(0, optionsOpenIndex);
+  const createdWindowMatch = callPrefix.match(
+    /([A-Za-z_$][\w$]*)=await this\.windowManager\.createWindow\($/,
+  );
+  if (createdWindowMatch == null) {
+    return source;
+  }
+  const createdWindowVar = createdWindowMatch[1];
+
+  let optionsText = methodText.slice(optionsOpenIndex, optionsCloseIndex + 1);
+  optionsText = optionsText.replace(
+    "appearance:`avatarOverlay`,alwaysOnTop:process.platform===`linux`,skipTaskbar:process.platform===`linux`,",
+    "appearance:`avatarOverlay`,",
+  );
+  if (!optionsText.includes(`\`${LINUX_AVATAR_OVERLAY_TITLE}\``)) {
+    optionsText = optionsText.replace(
+      /title:([^,{}]+),/,
+      `title:process.platform===\`linux\`?\`${LINUX_AVATAR_OVERLAY_TITLE}\`:$1,`,
     );
+  }
+  if (!optionsText.includes("lockTitle:process.platform===`linux`")) {
+    optionsText = optionsText.replace(
+      "appearance:`avatarOverlay`,",
+      "appearance:`avatarOverlay`,lockTitle:process.platform===`linux`,",
+    );
+  }
+  if (!optionsText.includes("focusable:process.platform===`linux`?!0:!1")) {
+    if (optionsText.includes("focusable:!1")) {
+      optionsText = optionsText.replace(
+        "focusable:!1",
+        "focusable:process.platform===`linux`?!0:!1",
+      );
+    } else {
+      optionsText = optionsText.replace(
+        "appearance:`avatarOverlay`,lockTitle:process.platform===`linux`,",
+        "appearance:`avatarOverlay`,lockTitle:process.platform===`linux`,focusable:process.platform===`linux`?!0:!1,",
+      );
+    }
+  }
+
+  methodText =
+    methodText.slice(0, optionsOpenIndex) +
+    optionsText +
+    methodText.slice(optionsCloseIndex + 1);
+
+  if (!methodText.includes(`${createdWindowVar}.setAlwaysOnTop(!0)`)) {
+    const returnNeedle = `return this.window=${createdWindowVar},`;
+    const returnPatch =
+      `return process.platform===\`linux\`&&(${createdWindowVar}.setAlwaysOnTop(!0),` +
+      `${createdWindowVar}.setSkipTaskbar(!0)),this.window=${createdWindowVar},`;
+    methodText = methodText.replace(returnNeedle, returnPatch);
+  }
+
+  return replaceAvatarMethodText(source, createMethod, methodText);
 }
 
 function upgradeAvatarOverlayInjectedMethods(source, electronVar) {
@@ -246,12 +323,18 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
   patchedSource = upgradeAvatarOverlayInjectedMethods(patchedSource, electronVar);
   const beforeFocusablePatch = patchedSource;
   patchedSource = patchAvatarOverlayWindowOptions(patchedSource);
-  recordStrategy(
-    "avatar-window-options",
-    patchedSource === beforeFocusablePatch
-      ? patchedSource.includes("appearance:`avatarOverlay`") ? "already-applied" : "none"
-      : "upstream",
-  );
+  if (patchedSource !== beforeFocusablePatch) {
+    recordStrategy("avatar-window-options", "upstream-method");
+  } else if (hasLinuxAvatarWindowPolicy(patchedSource)) {
+    recordStrategy("avatar-window-options", "already-applied");
+  } else {
+    recordStrategy("avatar-window-options", "none");
+    if (patchedSource.includes("appearance:`avatarOverlay`")) {
+      console.warn(
+        "WARN: Could not apply the Linux avatar overlay window policy — KWin overlay matching may be unavailable",
+      );
+    }
+  }
 
   const startDragMethod = findAvatarOverlayMethod(
     patchedSource,
@@ -348,10 +431,21 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
     );
   }
 
-  if (!patchedSource.includes("this.codexLinuxAvatarCompositorHintsApplied=!1")) {
-    patchedSource = patchedSource.replace(
-      /return this\.window=([A-Za-z_$][\w$]*),/,
-      "return this.window=$1,this.codexLinuxAvatarCompositorHintsApplied=!1,this.codexLinuxAvatarCompositorHintsApplying=!1,",
+  const createWindowMethod = findAvatarOverlayMethod(
+    patchedSource,
+    /async createWindow\([^)]*\)\{/,
+  );
+  if (
+    createWindowMethod != null &&
+    !createWindowMethod.text.includes("this.codexLinuxAvatarCompositorHintsApplied=!1")
+  ) {
+    patchedSource = replaceAvatarMethodText(
+      patchedSource,
+      createWindowMethod,
+      createWindowMethod.text.replace(
+        /this\.window=([A-Za-z_$][\w$]*),/,
+        "this.window=$1,this.codexLinuxAvatarCompositorHintsApplied=!1,this.codexLinuxAvatarCompositorHintsApplying=!1,",
+      ),
     );
   }
 

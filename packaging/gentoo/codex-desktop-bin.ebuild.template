@@ -1,0 +1,100 @@
+# Copyright 2026 Codex Desktop Linux Maintainers
+# Distributed under the terms of the MIT license
+# Package atom: app-editors/codex-desktop-bin
+
+EAPI=8
+
+inherit xdg
+
+DESCRIPTION="Codex Desktop for Linux, packaged from the upstream desktop app"
+HOMEPAGE="https://github.com/Sr-0w/codex-desktop-linux"
+SRC_URI="file://${DISTDIR}/${P}.tar.zst"
+S="${WORKDIR}/image"
+
+LICENSE="MIT all-rights-reserved"
+SLOT="0"
+KEYWORDS="__KEYWORDS__"
+RESTRICT="bindist mirror strip"
+IUSE="+kde"
+
+RDEPEND="
+	app-accessibility/at-spi2-core
+	app-arch/7zip
+	app-arch/unzip
+	dev-lang/python
+	dev-libs/glib
+	dev-libs/nspr
+	dev-libs/nss
+	kde? ( kde-apps/kdialog )
+	media-libs/alsa-lib
+	media-libs/mesa
+	net-misc/curl
+	net-print/cups
+	sys-apps/dbus
+	sys-auth/polkit
+	sys-devel/gcc
+	sys-libs/glibc
+	x11-libs/cairo
+	x11-libs/gtk+:3
+	x11-libs/libdrm
+	x11-libs/libX11
+	x11-libs/libxcb
+	x11-libs/libXcomposite
+	x11-libs/libXdamage
+	x11-libs/libXext
+	x11-libs/libXfixes
+	x11-libs/libxkbcommon
+	x11-libs/libXrandr
+	x11-libs/pango
+"
+BDEPEND="app-arch/zstd"
+
+QA_PREBUILT="opt/codex-desktop/**"
+REQUIRES_EXCLUDE="opt/codex-desktop/**"
+
+src_unpack() {
+	tar -I zstd -xf "${DISTDIR}/${P}.tar.zst" -C "${WORKDIR}" || die
+}
+
+src_install() {
+	cp -a "${S}"/. "${D}"/ || die
+}
+
+pkg_preinst() {
+	xdg_pkg_preinst
+}
+
+pkg_postinst() {
+	xdg_pkg_postinst
+	local doctor="${EROOT%/}/opt/codex-desktop/.codex-linux/codex-desktop-entry-doctor.sh"
+	if [[ -f "${doctor}" ]]; then
+		# shellcheck source=/opt/codex-desktop/.codex-linux/codex-desktop-entry-doctor.sh
+		. "${doctor}"
+		codex_desktop_repair_system_package_shadow_entries codex-desktop || true
+	fi
+
+	local cleanup="${EROOT%/}/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh"
+	if [[ -f "${cleanup}" ]]; then
+		# shellcheck source=/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh
+		. "${cleanup}"
+		codex_no_updater_cleanup_update_manager_service || true
+	fi
+
+	if [[ -x "${EROOT%/}/usr/bin/codex-update-manager" ]]; then
+		elog "codex-update-manager is installed."
+		elog "On OpenRC/non-systemd sessions, Codex Desktop checks for stale updates in the background on launch."
+	fi
+}
+
+pkg_postrm() {
+	xdg_pkg_postrm
+}
+
+pkg_prerm() {
+	local cleanup="${EROOT%/}/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh"
+	if [[ -f "${cleanup}" ]]; then
+		# shellcheck source=/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh
+		. "${cleanup}"
+		codex_no_updater_cleanup_update_manager_service || true
+	fi
+}

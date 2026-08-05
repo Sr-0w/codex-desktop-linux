@@ -1,7 +1,11 @@
 #!/bin/bash
 
+CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID=""
+
 codex_packaged_runtime_prelaunch() {
+    export CODEX_SYNC_CLI_PREFLIGHT="${CODEX_SYNC_CLI_PREFLIGHT:-1}"
     codex_packaged_runtime_prelaunch_background >/dev/null 2>&1 &
+    CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID=$!
 }
 
 codex_packaged_runtime_prelaunch_background() {
@@ -65,6 +69,19 @@ codex_packaged_runtime_trigger_update_check() {
     fi
 
     codex-update-manager check-now --if-stale >/dev/null 2>&1 || true
+}
+
+codex_packaged_runtime_after_exit() {
+    local update_check_pid="${CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID:-}"
+
+    if [ -n "$update_check_pid" ]; then
+        wait "$update_check_pid" >/dev/null 2>&1 || true
+        CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID=""
+    fi
+
+    if command -v codex-update-manager >/dev/null 2>&1; then
+        codex-update-manager check-now --if-stale >/dev/null 2>&1 || true
+    fi
 }
 
 codex_packaged_runtime_export_env() {

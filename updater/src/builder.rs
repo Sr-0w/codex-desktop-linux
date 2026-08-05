@@ -14,11 +14,12 @@ use std::{
 use tokio::process::Command;
 use tracing::info;
 
-const REQUIRED_BUNDLE_FILES: [(&str, &str); 17] = [
+const REQUIRED_BUNDLE_FILES: [(&str, &str); 21] = [
     ("Cargo.toml", "Cargo.toml"),
     ("Cargo.lock", "Cargo.lock"),
     ("computer-use-linux", "computer-use-linux"),
     ("read-aloud-linux", "read-aloud-linux"),
+    ("record-replay-linux", "record-replay-linux"),
     ("updater", "updater"),
     (
         "plugins/openai-bundled/plugins/computer-use",
@@ -32,6 +33,7 @@ const REQUIRED_BUNDLE_FILES: [(&str, &str); 17] = [
     ("launcher/start.sh.template", "launcher/start.sh.template"),
     ("launcher/webview-server.py", "launcher/webview-server.py"),
     ("scripts/build-deb.sh", "scripts/build-deb.sh"),
+    ("scripts/build-gentoo-bin.sh", "scripts/build-gentoo-bin.sh"),
     (
         "scripts/patch-linux-window-ui.js",
         "scripts/patch-linux-window-ui.js",
@@ -39,7 +41,9 @@ const REQUIRED_BUNDLE_FILES: [(&str, &str); 17] = [
     ("scripts/patches", "scripts/patches"),
     ("scripts/lib", "scripts/lib"),
     ("packaging/linux", "packaging/linux"),
+    ("packaging/gentoo", "packaging/gentoo"),
     ("assets/codex.png", "assets/codex.png"),
+    ("assets/codex-linux.png", "assets/codex-linux.png"),
     ("linux-features", "linux-features"),
 ];
 const OPTIONAL_BUNDLE_FILES: [(&str, &str); 5] = [
@@ -64,6 +68,7 @@ const PACMAN_PACKAGE_SUFFIXES: &[&str] = &[
     ".pkg.tar.lz4",
     ".pkg.tar.lz5",
 ];
+const GENTOO_PACKAGE_SUFFIX: &str = ".gentoo.tar.zst";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 /// Paths to the temporary workspace and generated package produced by a rebuild.
@@ -231,6 +236,7 @@ fn package_build_script(bundle_dir: &Path) -> PathBuf {
     match PackageKind::detect() {
         PackageKind::Rpm => bundle_dir.join("scripts/build-rpm.sh"),
         PackageKind::Pacman => bundle_dir.join("scripts/build-pacman.sh"),
+        PackageKind::Gentoo => bundle_dir.join("scripts/build-gentoo-bin.sh"),
         PackageKind::Deb => bundle_dir.join("scripts/build-deb.sh"),
     }
 }
@@ -328,7 +334,7 @@ fn find_package_in(dist_dir: &Path) -> Result<PathBuf> {
     }
 
     anyhow::bail!(
-        "No native package (.deb, .rpm, or .pkg.tar.*) found in {}",
+        "No native package (.deb, .rpm, .pkg.tar.*, or .gentoo.tar.zst) found in {}",
         dist_dir.display()
     )
 }
@@ -341,6 +347,7 @@ fn is_native_package_file(path: &Path) -> bool {
         .to_ascii_lowercase();
     name.ends_with(".deb")
         || name.ends_with(".rpm")
+        || name.ends_with(GENTOO_PACKAGE_SUFFIX)
         || PACMAN_PACKAGE_SUFFIXES
             .iter()
             .any(|suffix| name.ends_with(suffix))
@@ -474,6 +481,7 @@ mod tests {
         Deb,
         Rpm,
         Pacman,
+        Gentoo,
     }
 
     fn write_fake_build_script(path: &Path, output: FakePackageOutput) -> Result<()> {
@@ -500,6 +508,14 @@ mkdir -p "${DIST_DIR_OVERRIDE}"
 touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
 "#
             }
+            FakePackageOutput::Gentoo => {
+                r#"#!/bin/bash
+set -euo pipefail
+VER="${PACKAGE_VERSION%%+*}"
+mkdir -p "${DIST_DIR_OVERRIDE}"
+touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-amd64.gentoo.tar.zst"
+"#
+            }
         };
 
         fs::write(path, script_body)?;
@@ -514,7 +530,7 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
     fn write_fake_computer_use_bundle(root: &Path) -> Result<()> {
         fs::write(
             root.join("Cargo.toml"),
-            b"[workspace]\nmembers = [\"computer-use-linux\", \"read-aloud-linux\", \"updater\"]\n",
+            b"[workspace]\nmembers = [\"computer-use-linux\", \"read-aloud-linux\", \"record-replay-linux\", \"updater\"]\n",
         )?;
         fs::write(root.join("Cargo.lock"), b"# fake lock\n")?;
         fs::create_dir_all(root.join("computer-use-linux/src"))?;
@@ -532,6 +548,15 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
             b"[package]\nname = \"codex-read-aloud-linux\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
         )?;
         fs::write(root.join("read-aloud-linux/src/main.rs"), b"fn main() {}\n")?;
+        fs::create_dir_all(root.join("record-replay-linux/src"))?;
+        fs::write(
+            root.join("record-replay-linux/Cargo.toml"),
+            b"[package]\nname = \"codex-record-replay-linux\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )?;
+        fs::write(
+            root.join("record-replay-linux/src/main.rs"),
+            b"fn main() {}\n",
+        )?;
         fs::create_dir_all(root.join("updater/src"))?;
         fs::write(
             root.join("updater/Cargo.toml"),
@@ -582,6 +607,7 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
         fs::create_dir_all(bundle_root.join("scripts/patches"))?;
         fs::create_dir_all(bundle_root.join("launcher"))?;
         fs::create_dir_all(bundle_root.join("packaging/linux"))?;
+        fs::create_dir_all(bundle_root.join("packaging/gentoo"))?;
         fs::create_dir_all(bundle_root.join("assets"))?;
         fs::create_dir_all(bundle_root.join(".codex-linux"))?;
         write_fake_computer_use_bundle(&bundle_root)?;
@@ -600,6 +626,7 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
             b"# fake webview server\n",
         )?;
         fs::write(bundle_root.join("assets/codex.png"), b"png")?;
+        fs::write(bundle_root.join("assets/codex-linux.png"), b"linux-png")?;
         fs::write(
             bundle_root.join("packaging/linux/control"),
             "Package: codex",
@@ -645,6 +672,15 @@ touch "${DIST_DIR_OVERRIDE}/codex-desktop-${VER}-1-x86_64.pkg.tar.zst"
             "post_install() { :; }\n",
         )?;
         fs::write(
+            bundle_root.join("packaging/gentoo/codex-desktop-bin.ebuild.template"),
+            "EAPI=8\n",
+        )?;
+        fs::write(
+            bundle_root.join("packaging/gentoo/metadata.xml"),
+            "<pkgmetadata/>\n",
+        )?;
+        fs::write(bundle_root.join("packaging/gentoo/README.md"), "# Gentoo\n")?;
+        fs::write(
             bundle_root.join("install.sh"),
             r#"#!/bin/bash
 set -euo pipefail
@@ -681,6 +717,10 @@ fi
         write_fake_build_script(
             &bundle_root.join("scripts/build-pacman.sh"),
             FakePackageOutput::Pacman,
+        )?;
+        write_fake_build_script(
+            &bundle_root.join("scripts/build-gentoo-bin.sh"),
+            FakePackageOutput::Gentoo,
         )?;
         fs::write(
             bundle_root.join("scripts/rebuild-candidate.sh"),
@@ -780,7 +820,7 @@ fi
             .exists());
         assert!(
             is_native_package_file(&artifacts.package_path),
-            "expected a native package (.deb, .rpm, or .pkg.tar.zst), got {}",
+            "expected a native package (.deb, .rpm, .pkg.tar.*, or .gentoo.tar.zst), got {}",
             artifacts.package_path.display()
         );
         Ok(())
@@ -796,6 +836,7 @@ fi
         fs::create_dir_all(source_root.join("scripts/patches"))?;
         fs::create_dir_all(source_root.join("launcher"))?;
         fs::create_dir_all(source_root.join("packaging/linux"))?;
+        fs::create_dir_all(source_root.join("packaging/gentoo"))?;
         fs::create_dir_all(source_root.join("assets"))?;
         write_fake_computer_use_bundle(&source_root)?;
         write_fake_linux_features_bundle(&source_root)?;
@@ -809,6 +850,10 @@ fi
             b"# fake webview server\n",
         )?;
         fs::write(source_root.join("scripts/build-deb.sh"), b"#!/bin/bash\n")?;
+        fs::write(
+            source_root.join("scripts/build-gentoo-bin.sh"),
+            b"#!/bin/bash\n",
+        )?;
         fs::write(
             source_root.join("scripts/patch-linux-window-ui.js"),
             b"console.log('patched');\n",
@@ -833,7 +878,12 @@ fi
             source_root.join("packaging/linux/codex-update-manager.service"),
             b"[Unit]\nDescription=Codex Update Manager\n",
         )?;
+        fs::write(
+            source_root.join("packaging/gentoo/codex-desktop-bin.ebuild.template"),
+            b"EAPI=8\n",
+        )?;
         fs::write(source_root.join("assets/codex.png"), b"png")?;
+        fs::write(source_root.join("assets/codex-linux.png"), b"linux-png")?;
 
         copy_builder_bundle(&source_root, &destination_root)?;
 
@@ -847,6 +897,7 @@ fi
             .exists());
         assert!(destination_root.join("computer-use-linux").exists());
         assert!(destination_root.join("read-aloud-linux").exists());
+        assert!(destination_root.join("record-replay-linux").exists());
         assert!(destination_root.join("updater").exists());
         assert!(destination_root
             .join("plugins/openai-bundled/plugins/computer-use/.mcp.json")
@@ -860,6 +911,13 @@ fi
         assert!(destination_root
             .join("linux-features/features.example.json")
             .exists());
+        assert!(destination_root
+            .join("scripts/build-gentoo-bin.sh")
+            .exists());
+        assert!(destination_root
+            .join("packaging/gentoo/codex-desktop-bin.ebuild.template")
+            .exists());
+        assert!(destination_root.join("assets/codex-linux.png").exists());
         assert!(!destination_root.join("scripts/build-rpm.sh").exists());
         assert!(!destination_root.join("scripts/build-pacman.sh").exists());
         Ok(())
@@ -873,7 +931,7 @@ fi
         let error = find_package_in(temp.path()).expect_err("package discovery should fail");
         assert!(error
             .to_string()
-            .contains("No native package (.deb, .rpm, or .pkg.tar.*)"));
+            .contains("No native package (.deb, .rpm, .pkg.tar.*, or .gentoo.tar.zst)"));
         Ok(())
     }
 

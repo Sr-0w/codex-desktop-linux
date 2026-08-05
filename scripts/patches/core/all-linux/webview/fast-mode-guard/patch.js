@@ -8,11 +8,11 @@ module.exports = [
     phase: "webview-asset",
     order: 1040,
     ciPolicy: "required-upstream",
-    // Older DMGs emit granular hook chunks; 26.623+ merges service-tier code
-    // into the shared `app-initial~app-main~…` bundle (and switched to optional
-    // chaining, so the guard is a no-op there). Match both shapes.
-    pattern: /^(?:use-is-fast-mode-enabled|read-service-tier-for-request|use-service-tier-settings|app-server-manager-signals|app-initial~app-main~).*\.js$/,
-    missingDescription: "fast-mode/service-tier availability bundle",
+    // Vite chunk names and split points are not an API. The patch itself is
+    // content-gated, so scan JavaScript assets and let unsafe service-tier code
+    // identify the owning bundle.
+    pattern: /\.(?:c|m)?js$/,
+    missingDescription: "JavaScript webview assets for fast-mode validation",
     skipDescription: "fast-mode model guard patch",
     apply: applyLinuxFastModeModelGuardPatch,
   },

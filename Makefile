@@ -22,6 +22,7 @@ DEV_APP_BIN ?= $(CURDIR)/bin/$(DEV_APP_ID)
 DEB_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)_*.deb
 RPM_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-*.rpm
 PACMAN_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-[0-9]*.pkg.tar.*
+GENTOO_GLOB := $(CURDIR)/dist/$(PACKAGE_NAME)-[0-9]*.gentoo.tar.zst
 .DEFAULT_GOAL := help
 
 NATIVE_PKG_FORMAT_CMD = format=""; \
@@ -37,7 +38,9 @@ os_release_token_match() { \
 	return 1; \
 }; \
 if [ -r /etc/os-release ]; then . /etc/os-release; \
-	if os_release_token_match arch archlinux manjaro endeavouros artix; then \
+	if os_release_token_match gentoo; then \
+		format="gentoo"; \
+	elif os_release_token_match arch archlinux manjaro endeavouros artix; then \
 		format="pacman"; \
 	elif os_release_token_match fedora rhel centos rocky almalinux ol sles suse opensuse; then \
 		format="rpm"; \
@@ -46,7 +49,9 @@ if [ -r /etc/os-release ]; then . /etc/os-release; \
 	fi; \
 fi; \
 if [ -z "$$format" ]; then \
-	if command -v pacman >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
+	if command -v emerge >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
+		format="gentoo"; \
+	elif command -v pacman >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
 		format="pacman"; \
 	elif command -v rpmbuild >/dev/null 2>&1 && ! command -v dpkg-deb >/dev/null 2>&1; then \
 		format="rpm"; \
@@ -60,7 +65,7 @@ if [ -z "$$format" ]; then \
 fi; \
 printf '%s\n' "$$format"
 
-.PHONY: help check test build-updater maybe-build-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman appimage package install service-enable service-status clean-dist clean-state
+.PHONY: help check test build-updater maybe-build-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman gentoo appimage package install service-enable service-status clean-dist clean-state
 
 help:
 	@printf '\nCodex Desktop Linux Make Targets\n\n'
@@ -84,8 +89,9 @@ help:
 	@printf '  %-18s %s\n' "make deb" "Build the Debian package into dist/"
 	@printf '  %-18s %s\n' "make rpm" "Build the RPM package into dist/ (Fedora/openSUSE)"
 	@printf '  %-18s %s\n' "make pacman" "Build the pacman package into dist/ (Arch)"
+	@printf '  %-18s %s\n' "make gentoo" "Build the Gentoo overlay package into dist/ (Portage)"
 	@printf '  %-18s %s\n' "make appimage" "Build the AppImage into dist/ (local self-build)"
-	@printf '  %-18s %s\n' "make package" "Build native package (auto-detects deb, rpm, or pacman)"
+	@printf '  %-18s %s\n' "make package" "Build native package (auto-detects deb, rpm, pacman, or Gentoo)"
 	@printf '  %-18s %s\n' "make install" "Install the latest generated native package"
 	@printf '  %-18s %s\n' "make service-enable" "Enable and start codex-update-manager.service for the current user"
 	@printf '  %-18s %s\n' "make service-status" "Show codex-update-manager.service status for the current user"
@@ -126,6 +132,7 @@ help:
 	@printf '  %s\n' "MAX_BUILD_THREADS=8 make install-native"
 	@printf '  %s\n' "MAX_BUILD_THREADS=8 make rpm"
 	@printf '  %s\n' "make pacman PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
+	@printf '  %s\n' "make gentoo PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
 	@printf '  %s\n' "make appimage PACKAGE_VERSION=2026.03.24.220723+88f07cd3"
 	@printf '  %s\n' "make install"
 	@printf '  %s\n\n' "make service-enable"
@@ -242,6 +249,10 @@ pacman: maybe-build-updater
 	@echo "[make] Building pacman package"
 	MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-pacman.sh
 
+gentoo: maybe-build-updater
+	@echo "[make] Building Gentoo overlay package"
+	MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-gentoo-bin.sh
+
 appimage:
 	@echo "[make] Building AppImage"
 	MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" ./scripts/build-appimage.sh
@@ -249,14 +260,16 @@ appimage:
 package: maybe-build-updater
 	@echo "[make] Building native package (auto-detecting distro)"
 	@format="$$( $(NATIVE_PKG_FORMAT_CMD) )"; \
-	if [ "$$format" = "pacman" ]; then \
+	if [ "$$format" = "gentoo" ]; then \
+		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-gentoo-bin.sh; \
+	elif [ "$$format" = "pacman" ]; then \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-pacman.sh; \
 	elif [ "$$format" = "rpm" ]; then \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" RPM_BINARY_PAYLOAD="$(RPM_BINARY_PAYLOAD)" ./scripts/build-rpm.sh; \
 	elif [ "$$format" = "deb" ]; then \
 		MAX_BUILD_THREADS="$(MAX_BUILD_THREADS)" PACKAGE_VERSION="$(or $(PACKAGE_VERSION),)" PACKAGE_WITH_UPDATER="$(PACKAGE_WITH_UPDATER)" ./scripts/build-deb.sh; \
 	else \
-		echo "[make] No supported packaging tool found. Install dpkg-dev (Debian), rpm-build (Fedora), or pacman (Arch)." >&2; \
+		echo "[make] No supported packaging tool found. Install dpkg-dev (Debian), rpm-build (Fedora), pacman (Arch), or Portage (Gentoo)." >&2; \
 		exit 1; \
 	fi
 
@@ -270,7 +283,18 @@ install:
 		printf '%s\n' "$$matches" | sort -V | tail -n 1; \
 	}; \
 	format="$$( $(NATIVE_PKG_FORMAT_CMD) )"; \
-	if [ "$$format" = "pacman" ]; then \
+	if [ "$$format" = "gentoo" ]; then \
+		gentoo="$${GENTOO:-$$(latest_matching_file "$(GENTOO_GLOB)")}"; \
+		if [ -z "$$gentoo" ]; then \
+			echo "[make] No Gentoo overlay artifact found. Run 'make gentoo' first." >&2; exit 1; \
+		fi; \
+		updater="$${CODEX_UPDATE_MANAGER:-$(CURDIR)/target/release/codex-update-manager}"; \
+		if [ ! -x "$$updater" ]; then \
+			echo "[make] Missing updater binary: $$updater. Run 'make build-updater' first." >&2; exit 1; \
+		fi; \
+		echo "[make] Installing $$gentoo"; \
+		sudo "$$updater" install-gentoo --path "$$gentoo"; \
+	elif [ "$$format" = "pacman" ]; then \
 		pkg="$${PKG:-$$(latest_matching_file "$(PACMAN_GLOB)")}"; \
 		if [ -z "$$pkg" ]; then \
 			echo "[make] No pacman package found. Run 'make pacman' first." >&2; exit 1; \

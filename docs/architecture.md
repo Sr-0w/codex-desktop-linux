@@ -17,9 +17,10 @@ package artifacts.
 7. It writes the Linux launcher to `codex-app/start.sh` from
    `launcher/start.sh.template`.
 8. Package builders repackage `codex-app/` into `.deb`, `.rpm`,
-   `.pkg.tar.zst`, or AppImage artifacts.
-9. Default native packages install `codex-update-manager` and a
-   `systemd --user` service.
+   `.pkg.tar.zst`, Gentoo overlay `.gentoo.tar.zst`, or AppImage artifacts.
+9. Default native packages install `codex-update-manager`; Debian, RPM, and
+   pacman packages also install a `systemd --user` service, while Gentoo/OpenRC
+   uses launch-time update checks.
 
 The installer replaces the macOS Electron binary with a Linux build, recompiles
 native modules, and removes macOS-only pieces such as Sparkle.
@@ -80,7 +81,7 @@ Run the subset that matches your change. For installer, packaging, patcher, or
 updater changes:
 
 ```bash
-bash -n install.sh scripts/lib/*.sh launcher/start.sh.template scripts/build-deb.sh scripts/build-rpm.sh scripts/build-pacman.sh scripts/build-appimage.sh scripts/install-deps.sh
+bash -n install.sh scripts/lib/*.sh launcher/start.sh.template scripts/build-deb.sh scripts/build-rpm.sh scripts/build-pacman.sh scripts/build-gentoo-bin.sh scripts/build-appimage.sh scripts/install-deps.sh
 node --check scripts/patch-linux-window-ui.js
 node --test scripts/patch-linux-window-ui.test.js
 node --test linux-features/*/test.js

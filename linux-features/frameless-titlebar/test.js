@@ -99,6 +99,31 @@ test("frameless-titlebar collapses the core-patched zoom overlay ternary", () =>
   assert.doesNotMatch(patched, /process\.platform===`linux`[^;]*setTitleBarOverlay/);
 });
 
+test("frameless-titlebar removes Linux overlay controls from grouped quickChat primary titlebars", () => {
+  const source = [
+    "function j9(e=1){return{color:k9,symbolColor:c.nativeTheme.shouldUseDarkColors?Ane:kne,height:Math.round(One*e)}}",
+    "function codexLinuxTitleBarOverlay(e=1){return{color:c.nativeTheme.shouldUseDarkColors?`#111111`:vne,symbolColor:c.nativeTheme.shouldUseDarkColors?Ane:kne,height:Math.round(30*e)}}",
+    "case`quickChat`:case`primary`:return n===`darwin`?{titleBarStyle:`hiddenInset`,trafficLightPosition:A9(r),...e===`quickChat`?{hasShadow:!0,resizable:!0,transparent:!0}:{},...t?{}:{vibrancy:`menu`}}:n===`win32`?{titleBarStyle:`hidden`,titleBarOverlay:j9(r),...e===`quickChat`?{resizable:!0}:{}}:n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:codexLinuxTitleBarOverlay(r),...e===`quickChat`?{resizable:!0}:{}}:{titleBarStyle:`default`,...e===`quickChat`?{resizable:!0}:{}};",
+    "setWindowZoom(e,t){let n=c.BrowserWindow.fromWebContents(e);n==null||(process.platform===`darwin`?n.setWindowButtonPosition(A9(t)):(process.platform===`win32`||process.platform===`linux`)&&(this.windowZooms.set(n.id,t),n.setTitleBarOverlay(process.platform===`linux`?codexLinuxTitleBarOverlay(t):j9(t))))}",
+    "installApplicationMenuTitleBarOverlaySync(e,t){if((process.platform!==`win32`&&process.platform!==`linux`)||t!==`primary`&&t!==`quickChat`)return;let n=()=>{e.isDestroyed()||e.setTitleBarOverlay(process.platform===`linux`?codexLinuxTitleBarOverlay(this.windowZooms.get(e.id)):j9(this.windowZooms.get(e.id)))};return c.nativeTheme.on(`updated`,n),n(),()=>{c.nativeTheme.off(`updated`,n)}}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyFramelessTitlebarMainPatch, source);
+
+  assert.match(
+    patched,
+    /n===`linux`\?\{titleBarStyle:`hidden`,\.\.\.e===`quickChat`\?\{resizable:!0\}:\{\}\}/,
+  );
+  assert.match(
+    patched,
+    /process\.platform===`win32`&&\(this\.windowZooms\.set\(n\.id,t\),n\.setTitleBarOverlay\(j9\(t\)\)\)/,
+  );
+  assert.match(patched, /if\(process\.platform!==`win32`\|\|t!==`primary`&&t!==`quickChat`\)return/);
+  assert.doesNotMatch(patched, /titleBarOverlay:codexLinuxTitleBarOverlay/);
+  assert.doesNotMatch(patched, /setTitleBarOverlay\(process\.platform===`linux`/);
+  assert.doesNotMatch(patched, /process\.platform===`linux`[^;]*setTitleBarOverlay/);
+});
+
 test("frameless-titlebar maps Linux window controls chrome to native webview layout", () => {
   const source = [
     "var l=Object.freeze({default:Object.freeze({left:0,right:0}),mac:Object.freeze({legacy:Object.freeze({left:66+c,right:0}),modern:Object.freeze({left:76+c,right:0})}),applicationMenu:Object.freeze({left:0,right:138})});",

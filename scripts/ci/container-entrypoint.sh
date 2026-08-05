@@ -58,7 +58,8 @@ prepare_apt_ci() {
         python3 \
         tar \
         unzip \
-        xz-utils
+        xz-utils \
+        zstd
 }
 
 prepare_apt_install_deps() {
@@ -235,6 +236,7 @@ run_core_job() {
     bash -n scripts/build-deb.sh
     bash -n scripts/build-rpm.sh
     bash -n scripts/build-pacman.sh
+    bash -n scripts/build-gentoo-bin.sh
     bash -n scripts/build-appimage.sh
     bash -n scripts/ci-local.sh
     bash -n scripts/ci/*.sh
@@ -416,6 +418,36 @@ run_pacman_job() {
         "Verified PACKAGE_WITH_UPDATER=0 omits updater artifacts."
 }
 
+run_gentoo_job() {
+    enter_workspace
+    ensure_rust_toolchain
+    prepare_package_fixture
+
+    local target_dir
+    target_dir="$(package_target_dir)"
+    CARGO_TARGET_DIR="$target_dir" \
+    UPDATER_BINARY_SOURCE="$target_dir/release/codex-update-manager" \
+    PACKAGE_VERSION="$CI_PACKAGE_VERSION" \
+        ./scripts/build-gentoo-bin.sh
+
+    local gentoo_file
+    gentoo_file="$(package_file_or_fail 'codex-desktop-*.gentoo.tar.zst')"
+    mkdir -p /tmp/gentoo-artifact /tmp/gentoo-payload
+    tar -I zstd -xf "$gentoo_file" -C /tmp/gentoo-artifact
+    assert_contains_file /tmp/gentoo-artifact/codex-desktop-linux-gentoo/metadata/package-name 'codex-desktop-bin'
+    assert_contains_file /tmp/gentoo-artifact/codex-desktop-linux-gentoo/metadata/atom '=app-editors/codex-desktop-bin-'
+    assert_contains_file /tmp/gentoo-artifact/codex-desktop-linux-gentoo/overlay/app-editors/codex-desktop-bin/Manifest 'DIST codex-desktop-bin-'
+    tar -I zstd -xf /tmp/gentoo-artifact/codex-desktop-linux-gentoo/distfiles/codex-desktop-bin-*.tar.zst -C /tmp/gentoo-payload
+    test -x /tmp/gentoo-payload/image/usr/bin/codex-update-manager
+    test -f /tmp/gentoo-payload/image/opt/codex-desktop/update-builder/install.sh
+    test -f /tmp/gentoo-payload/image/opt/codex-desktop/update-builder/scripts/build-gentoo-bin.sh
+    test ! -e /tmp/gentoo-payload/image/usr/lib/systemd/user/codex-update-manager.service
+
+    append_summary "Gentoo Package Validation" \
+        "Built: \`$(basename "$gentoo_file")\`" \
+        "Verified overlay, Manifest, updater binary, update-builder bundle, and OpenRC/non-systemd payload shape."
+}
+
 run_install_deps_job_as_root() {
     enter_workspace
 
@@ -537,6 +569,7 @@ run_job_as_current_user() {
         deb) run_deb_job ;;
         rpm) run_rpm_job ;;
         pacman) run_pacman_job ;;
+        gentoo) run_gentoo_job ;;
         upstream) run_upstream_job ;;
         *) error "Unsupported user-phase job: $CI_JOB" ;;
     esac
@@ -552,8 +585,11 @@ if [ "${CI_CONTAINER_PHASE:-root}" = "job" ]; then
 fi
 
 case "$CI_JOB" in
-    core|deb|upstream)
+    core|deb|gentoo|upstream)
         prepare_apt_ci
+        if [ "$CI_JOB" = "gentoo" ]; then
+            apt_install zstd
+        fi
         ensure_ci_user
         run_as_ci_user
         ;;

@@ -1,0 +1,16 @@
+{
+  "id": "kde-native-corners",
+  "title": "KDE Native Window Integration",
+  "description": "Uses KWin decorations for the main window and keeps the movable pet borderless, above other windows, and out of task switchers.",
+  "defaultEnabled": false,
+  "entrypoints": {
+    "patchDescriptors": "./patch.js"
+  },
+  "runtimeHooks": {
+    "prelaunch": {
+      "source": "configure-kwin.sh",
+      "name": "configure-kwin.sh",
+      "mode": "0755"
+    }
+  }
+}

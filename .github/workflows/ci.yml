@@ -23,6 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install smoke test tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zstd
+
       - name: Install Rust components
         run: rustup component add rustfmt clippy
 
@@ -34,7 +40,9 @@ jobs:
           bash -n scripts/build-deb.sh
           bash -n scripts/build-rpm.sh
           bash -n scripts/build-pacman.sh
+          bash -n scripts/build-gentoo-bin.sh
           bash -n scripts/build-appimage.sh
+          bash -n scripts/ci/validate-app-architecture.sh
           bash -n scripts/ci/update-nix-hashes.sh
           bash -n scripts/ci/validate-nix-pins.sh
 
@@ -71,6 +79,85 @@ jobs:
             echo "- Rust formatting, clippy, check, and tests passed."
             echo "- Script smoke tests passed."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  arm64-portability:
+    name: ARM64 Portability
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install ARM64 validation tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            curl \
+            file \
+            g++ \
+            libarchive-tools \
+            make \
+            makepkg \
+            pacman-package-manager \
+            rpm \
+            zstd
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Check ARM64 Rust workspace
+        run: cargo check --workspace --all-targets
+
+      - name: Create minimal ARM64 app fixture
+        run: |
+          set -euo pipefail
+          rm -rf codex-app dist
+          tests/fixtures/create-packaged-app-fixture.sh codex-app
+          cargo build --release -p codex-update-manager
+          file target/release/codex-update-manager | grep -q 'ARM aarch64'
+
+      - name: Build and inspect ARM64 native packages
+        run: |
+          set -euo pipefail
+
+          PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-deb.sh
+          deb_file="$(find dist -maxdepth 1 -name 'codex-desktop_*.deb' -print -quit)"
+          test "$(dpkg-deb -f "$deb_file" Architecture)" = "arm64"
+
+          PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-rpm.sh
+          rpm_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.rpm' -print -quit)"
+          test "$(rpm -qp --queryformat '%{ARCH}' "$rpm_file")" = "aarch64"
+
+          PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-pacman.sh
+          pacman_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.pkg.tar.*' ! -name '*latest*' -print -quit)"
+          pacman_arch="$(bsdtar -xOf "$pacman_file" .PKGINFO | awk -F ' = ' '$1 == "arch" { print $2; exit }')"
+          test "$pacman_arch" = "aarch64"
+
+          PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-gentoo-bin.sh
+          gentoo_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.gentoo.tar.zst' ! -name '*latest*' -print -quit)"
+          mkdir -p /tmp/codex-gentoo-arm64
+          tar -I zstd -xf "$gentoo_file" -C /tmp/codex-gentoo-arm64
+          test "$(cat /tmp/codex-gentoo-arm64/codex-desktop-linux-gentoo/metadata/architecture)" = "arm64"
+          grep -q 'KEYWORDS="arm64"' /tmp/codex-gentoo-arm64/codex-desktop-linux-gentoo/overlay/app-editors/codex-desktop-bin/*.ebuild
+
+      - name: Build ARM64 AppImage fixture
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          curl -fL --retry 3 \
+            -o "$HOME/.local/bin/appimagetool" \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-aarch64.AppImage
+          chmod 0755 "$HOME/.local/bin/appimagetool"
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+            APPIMAGETOOL="$HOME/.local/bin/appimagetool" \
+            PACKAGE_VERSION="$CI_PACKAGE_VERSION" \
+            ./scripts/build-appimage.sh
+          appimage_file="$(find dist -maxdepth 1 -name 'codex-desktop-*-aarch64.AppImage' -print -quit)"
+          test -n "$appimage_file"
+          file "$appimage_file" | grep -q 'ARM aarch64'
 
   package-deb:
     name: Build Debian Package
@@ -323,4 +410,44 @@ jobs:
             echo ""
             echo "- Built: \`$pkg_file\`"
             echo "- Verified updater binary, user service, update-builder bundle, and packaged runtime helper."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  package-gentoo:
+    name: Build Gentoo Overlay Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Gentoo packaging prerequisites
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends g++ make zstd
+
+      - name: Create minimal packaged app fixture
+        run: |
+          set -euo pipefail
+          rm -rf codex-app dist
+          tests/fixtures/create-packaged-app-fixture.sh codex-app
+
+      - name: Build and inspect Gentoo overlay package
+        run: |
+          set -euo pipefail
+          cargo build --release -p codex-update-manager
+          PACKAGE_VERSION="$CI_PACKAGE_VERSION" ./scripts/build-gentoo-bin.sh
+          gentoo_file="$(find dist -maxdepth 1 -name 'codex-desktop-*.gentoo.tar.zst' ! -name '*latest*' -print -quit)"
+          test -n "$gentoo_file"
+          mkdir -p /tmp/gentoo-artifact /tmp/gentoo-payload
+          tar -I zstd -xf "$gentoo_file" -C /tmp/gentoo-artifact
+          test -f /tmp/gentoo-artifact/codex-desktop-linux-gentoo/install-gentoo.sh
+          test -f /tmp/gentoo-artifact/codex-desktop-linux-gentoo/overlay/app-editors/codex-desktop-bin/Manifest
+          tar -I zstd -xf /tmp/gentoo-artifact/codex-desktop-linux-gentoo/distfiles/codex-desktop-bin-*.tar.zst -C /tmp/gentoo-payload
+          test -x /tmp/gentoo-payload/image/usr/bin/codex-update-manager
+          test -f /tmp/gentoo-payload/image/opt/codex-desktop/update-builder/scripts/build-gentoo-bin.sh
+          test ! -e /tmp/gentoo-payload/image/usr/lib/systemd/user/codex-update-manager.service
+          {
+            echo "## Gentoo Package Validation"
+            echo ""
+            echo "- Built: \`$(basename "$gentoo_file")\`"
+            echo "- Verified overlay, Manifest, updater binary, update-builder bundle, and OpenRC/non-systemd payload shape."
           } >> "$GITHUB_STEP_SUMMARY"

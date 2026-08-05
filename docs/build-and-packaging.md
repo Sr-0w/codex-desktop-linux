@@ -23,7 +23,8 @@ bash scripts/install-deps.sh
 ```
 
 It detects `apt`, `dnf5`, `dnf`, `pacman`, or `zypper`, installs system
-packages, and bootstraps Rust through `rustup` when needed.
+packages, and bootstraps Rust through `rustup` when needed. Gentoo hosts use
+`emerge` for system packages.
 
 ## Manual Dependencies
 
@@ -41,6 +42,9 @@ sudo zypper install -t pattern devel_basis
 
 # Arch / Manjaro
 sudo pacman -S --needed python p7zip curl unzip tar zstd base-devel
+
+# Gentoo
+sudo emerge --ask app-arch/7zip app-arch/unzip app-arch/zstd dev-lang/python net-misc/curl sys-devel/gcc sys-devel/make
 
 # Rust toolchain
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -80,6 +84,33 @@ explicit `DMG=/path/to/Codex.dmg` uses that file exactly.
 Native install shortcuts use `--fresh --reuse-dmg`, so they clean the generated
 app directory while still reusing the cached DMG when upstream metadata matches.
 
+## Architectures
+
+The installer supports native `x86_64` and `aarch64` builds. Build on the target
+architecture: Electron, the managed Node.js runtime, Electron addons, Rust
+helpers, and the updater are all selected or compiled for the host. The release
+workflow uses separate native GitHub runners and never repackages an x86_64
+`codex-app` as ARM64.
+
+On ARM64, use a 64-bit glibc distribution. Raspberry Pi OS 64-bit, Debian
+arm64, Ubuntu arm64, Fedora/openSUSE aarch64, Arch Linux ARM, Gentoo arm64, and
+NixOS aarch64 are the intended targets. ARM 32-bit and musl-only systems are
+outside the release contract.
+
+OpenAI currently publishes the privileged Browser Use `node_repl` primary
+runtime used here only for Linux x86_64. An ARM64 build can supply a verified
+archive explicitly:
+
+```bash
+CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL=https://example.invalid/runtime-arm64.tar.xz \
+CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256=<sha256> \
+./install.sh
+```
+
+The archive must contain
+`codex-primary-runtime/dependencies/bin/node_repl`; its ELF architecture and
+checksum are validated before staging.
+
 Run the generated app:
 
 ```bash
@@ -113,8 +144,9 @@ After `make build-app` or `make build-app-fresh`, build a package from
 | Format | Build command | Output | Install |
 |---|---|---|---|
 | Debian | `make deb` | `dist/codex-desktop_*.deb` | `sudo dpkg -i dist/codex-desktop_*.deb` |
-| RPM | `make rpm` | `dist/codex-desktop-*.x86_64.rpm` | `sudo dnf install dist/codex-desktop-*.rpm` or `sudo zypper install dist/codex-desktop-*.rpm` |
+| RPM | `make rpm` | `dist/codex-desktop-*.{x86_64,aarch64}.rpm` | `sudo dnf install dist/codex-desktop-*.rpm` or `sudo zypper install dist/codex-desktop-*.rpm` |
 | Arch | `make pacman` | `dist/codex-desktop-*.pkg.tar.zst` | `sudo pacman -U dist/codex-desktop-*.pkg.tar.zst` |
+| Gentoo | `make gentoo` | `dist/codex-desktop-*.gentoo.tar.zst` | `sudo target/release/codex-update-manager install-gentoo --path dist/codex-desktop-*.gentoo.tar.zst` |
 | AppImage | `make appimage` | `dist/codex-desktop-*.AppImage` | Run directly |
 | Auto-detect | `make package && make install` | matches host distro | handled by `make install` |
 
@@ -126,6 +158,12 @@ PACKAGE_VERSION=2026.03.24.220723+88f07cd3 make deb
 
 The packaging scripts only repackage what is already in `codex-app/`; they do
 not download or extract the DMG.
+
+The Gentoo builder creates a self-contained Portage overlay artifact for
+`app-editors/codex-desktop-bin`. It contains the overlay, Manifest, distfile,
+and `install-gentoo.sh`. The installed payload omits the `systemd --user` unit;
+OpenRC/non-systemd sessions rely on the packaged launch-time
+`codex-update-manager check-now --if-stale` fallback.
 
 ## AppImage Local Self-Build
 

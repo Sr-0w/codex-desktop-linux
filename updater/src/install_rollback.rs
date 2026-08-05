@@ -1,6 +1,6 @@
 //! Explicit rollback package installation helpers.
 
-use crate::install::{stable_validated_package, PackageKind};
+use crate::install::{merge_gentoo_package, stable_validated_package, PackageKind};
 use anyhow::{Context, Result};
 use std::{
     path::{Path, PathBuf},
@@ -69,12 +69,24 @@ pub fn install_pacman(path: &Path) -> Result<()> {
     run_install(&mut command).context("pacman rollback install failed")
 }
 
+pub fn install_gentoo(path: &Path) -> Result<()> {
+    let stable = stable_validated_package(path).with_context(|| {
+        format!(
+            "Failed to stabilize Gentoo rollback package {}",
+            path.display()
+        )
+    })?;
+
+    merge_gentoo_package(stable.path()).context("Gentoo rollback install failed")
+}
+
 pub fn pkexec_command(current_exe: &Path, package_path: &Path) -> Command {
     let updater_binary = updater_binary_for_privileged_install(current_exe);
     let subcommand = match PackageKind::from_path(package_path) {
         PackageKind::Rpm => "install-rollback-rpm",
         PackageKind::Deb => "install-rollback-deb",
         PackageKind::Pacman => "install-rollback-pacman",
+        PackageKind::Gentoo => "install-rollback-gentoo",
     };
     let mut command = Command::new("pkexec");
     command
@@ -308,6 +320,25 @@ mod tests {
                 "install-rollback-rpm",
                 "--path",
                 "/tmp/update.rpm"
+            ]
+        );
+
+        let gentoo = pkexec_command(
+            Path::new("/usr/bin/codex-update-manager"),
+            Path::new("/tmp/update.gentoo.tar.zst"),
+        );
+        let gentoo_args: Vec<_> = gentoo
+            .get_args()
+            .map(|value| value.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            gentoo_args,
+            vec![
+                "--disable-internal-agent",
+                "/usr/bin/codex-update-manager",
+                "install-rollback-gentoo",
+                "--path",
+                "/tmp/update.gentoo.tar.zst"
             ]
         );
     }

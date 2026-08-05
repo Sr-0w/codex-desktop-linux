@@ -227,6 +227,15 @@ function packageProfile(target) {
       notes: "",
     };
   }
+  if (ids.has("gentoo")) {
+    return {
+      id: "gentoo",
+      label: "Gentoo",
+      packageManager: "emerge",
+      format: ".gentoo.tar.zst",
+      notes: "Installs app-editors/codex-desktop-bin from the bundled local Portage overlay",
+    };
+  }
   return {
     id: "other-linux",
     label: "Atomic desktops / other Linux distros",

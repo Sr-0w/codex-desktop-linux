@@ -1814,7 +1814,10 @@ function applyLinuxFastModeModelGuardPatch(currentSource) {
     return patchedSource;
   }
 
-  if (/\bserviceTiers\.length\s*>\s*0/u.test(currentSource)) {
+  if (
+    currentSource.includes("additionalSpeedTiers") &&
+    /\bserviceTiers\.length\s*>\s*0/u.test(currentSource)
+  ) {
     console.warn(
       "WARN: Could not find fast-mode model guard insertion point — skipping fast-mode crash guard patch",
     );

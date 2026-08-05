@@ -33,6 +33,7 @@ make setup-native
 The wizard detects your distro, package manager, native package format, desktop
 session, GUI prompt helpers, `pkexec`, portal status, installed package state,
 updater state, and optional Linux feature manifests.
+Supported native formats are Debian, RPM, pacman, and Gentoo overlay artifacts.
 
 It can write the git-ignored `linux-features/features.json` file for the next
 build. You can choose features by id, number, or range in the prompt.

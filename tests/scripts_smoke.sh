@@ -128,7 +128,7 @@ JSON
 {"name":"browser","version":"0.1.0-alpha2","interface":{"category":"Engineering"}}
 JSON
     cat > "$resources_dir/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" <<'JS'
-function lu(e){let t=globalThis.nodeRepl?.env[e];return typeof t=="string"?t:void 0}function th(){let e=import.meta.__codexNativePipe;return e==null||typeof e.createConnection!="function"?null:e}var I2=new Set(["about:blank"]);function Gb(e){if(I2.has(e))return!0;let t;try{t=new URL(e)}catch{return!1}return t.protocol==="http:"||t.protocol==="https:"}class Uf{async fetchBlocked(e){let r=await bS(e.endpoint,{method:"GET"});if(!r.ok)throw new Error(ae(`Browser Use cannot determine if ${e.displayUrl} is allowed. Please try again later or use another source.`));let n=await r.json();return TF(n)}}export function setupAtlasRuntime() {}
+import{env as ly}from"node:process";function lu(e){let t=globalThis.nodeRepl?.env[e];return typeof t=="string"?t:void 0}function th(){let e=import.meta.__codexNativePipe;return e==null||typeof e.createConnection!="function"?null:e}var I2=new Set(["about:blank"]),YD=!1;function codexTestHook(e){YD||(e.addAfterSubmittedCodeHook({timeoutMs:1,run:async()=>{}}),YD=!0)}function Gb(e){if(I2.has(e))return!0;let t;try{t=new URL(e)}catch{return!1}return t.protocol==="http:"||t.protocol==="https:"}class Uf{async fetchBlocked(e){let r=await bS(e.endpoint,{method:"GET"});if(!r.ok)throw new Error(ae(`Browser Use cannot determine if ${e.displayUrl} is allowed. Please try again later or use another source.`));let n=await r.json();return TF(n)}}export function setupAtlasRuntime() {return ly}
 JS
 }
 
@@ -1094,6 +1094,80 @@ SCRIPT
     assert_not_contains "$capture_dir/codex-desktop.install" "update-builder"
 }
 
+test_gentoo_builder_smoke() {
+    info "Running Gentoo overlay packaging smoke test"
+    local workspace="$TMP_DIR/gentoo"
+    local app_dir="$workspace/app"
+    local dist_dir="$workspace/dist"
+    local updater_bin="$workspace/codex-update-manager"
+    local extract_dir="$workspace/extract"
+    local payload_dir="$workspace/payload"
+
+    mkdir -p "$workspace" "$dist_dir" "$extract_dir" "$payload_dir"
+    make_fake_app "$app_dir"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$updater_bin"
+    chmod +x "$updater_bin"
+
+    local artifact_path
+    artifact_path="$(
+        APP_DIR_OVERRIDE="$app_dir" \
+        DIST_DIR_OVERRIDE="$dist_dir" \
+        UPDATER_BINARY_SOURCE="$updater_bin" \
+        PACKAGE_VERSION="2026.03.24.120000+deadbeef" \
+        MAX_BUILD_THREADS=2 \
+        bash "$REPO_DIR/scripts/build-gentoo-bin.sh"
+    )"
+
+    assert_file_exists "$dist_dir/codex-desktop-2026.03.24.120000-amd64.gentoo.tar.zst"
+    [ "$artifact_path" = "$dist_dir/codex-desktop-2026.03.24.120000-amd64.gentoo.tar.zst" ] \
+        || fail "Expected build-gentoo-bin.sh to print built artifact path, got: $artifact_path"
+    assert_file_exists "$dist_dir/codex-desktop-latest.gentoo.tar.zst"
+    [ "$(readlink "$dist_dir/codex-desktop-latest.gentoo.tar.zst")" = "codex-desktop-2026.03.24.120000-amd64.gentoo.tar.zst" ] \
+        || fail "Expected latest Gentoo symlink to point at built artifact"
+
+    tar -I zstd -xf "$artifact_path" -C "$extract_dir"
+    local bundle="$extract_dir/codex-desktop-linux-gentoo"
+    assert_file_exists "$bundle/install-gentoo.sh"
+    assert_file_exists "$bundle/metadata/package-name"
+    assert_file_exists "$bundle/metadata/package-version"
+    assert_file_exists "$bundle/metadata/atom"
+    assert_file_exists "$bundle/metadata/architecture"
+    [ "$(cat "$bundle/metadata/package-name")" = "codex-desktop-bin" ] \
+        || fail "Expected Gentoo package name metadata"
+    [ "$(cat "$bundle/metadata/package-version")" = "2026.03.24.120000" ] \
+        || fail "Expected Gentoo package version to strip +metadata"
+    [ "$(cat "$bundle/metadata/atom")" = "=app-editors/codex-desktop-bin-2026.03.24.120000" ] \
+        || fail "Expected Gentoo atom metadata"
+    [ "$(cat "$bundle/metadata/architecture")" = "amd64" ] \
+        || fail "Expected Gentoo bundle architecture metadata"
+    assert_file_exists "$bundle/overlay/profiles/repo_name"
+    assert_file_exists "$bundle/overlay/metadata/layout.conf"
+    assert_file_exists "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild"
+    assert_file_exists "$bundle/overlay/app-editors/codex-desktop-bin/Manifest"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/Manifest" "DIST codex-desktop-bin-2026.03.24.120000.tar.zst"
+    if grep -Eq 'BLAKE2B [0-9A-Fa-f]*[A-F][0-9A-Fa-f]*|SHA512 [0-9A-Fa-f]*[A-F][0-9A-Fa-f]*' "$bundle/overlay/app-editors/codex-desktop-bin/Manifest"; then
+        fail "Gentoo Manifest checksums must be lowercase for Portage verification"
+    fi
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "inherit xdg"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" 'KEYWORDS="amd64"'
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" 'QA_PREBUILT="opt/codex-desktop/\*\*"'
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" 'REQUIRES_EXCLUDE="opt/codex-desktop/\*\*"'
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "On OpenRC/non-systemd sessions"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "xdg_pkg_postinst"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "xdg_pkg_postrm"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "src_unpack()"
+    assert_contains "$bundle/overlay/app-editors/codex-desktop-bin/codex-desktop-bin-2026.03.24.120000.ebuild" "tar -I zstd"
+    assert_contains "$bundle/install-gentoo.sh" "emerge --oneshot --verbose"
+
+    tar -I zstd -xf "$bundle/distfiles/codex-desktop-bin-2026.03.24.120000.tar.zst" -C "$payload_dir"
+    assert_file_exists "$payload_dir/image/usr/bin/codex-desktop"
+    assert_file_exists "$payload_dir/image/usr/bin/codex-update-manager"
+    assert_file_exists "$payload_dir/image/opt/codex-desktop/update-builder/scripts/build-gentoo-bin.sh"
+    assert_file_exists "$payload_dir/image/opt/codex-desktop/update-builder/packaging/gentoo/codex-desktop-bin.ebuild.template"
+    assert_file_exists "$payload_dir/image/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh"
+    assert_file_not_exists "$payload_dir/image/usr/lib/systemd/user/codex-update-manager.service"
+}
+
 test_appimage_builder_smoke() {
     info "Running AppImage packaging smoke test"
     local workspace="$TMP_DIR/appimage"
@@ -1178,11 +1252,66 @@ SCRIPT
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" 'CODEX_APPIMAGE_CURRENT_VERSION="2026.03.24.120000+appimage"'
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_update_check_background"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_install_release_update"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex_appimage_release_arch"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex-desktop-linux-aarch64.AppImage"
+    assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "codex-desktop-linux-x86_64.AppImage"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "CODEX_APPIMAGE_UPDATE_ASSUME_YES"
     assert_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "api.github.com/repos/Sr-0w/codex-desktop-linux/releases/latest"
     assert_not_contains "$capture_dir/AppDir/opt/codex-desktop/.codex-linux/codex-packaged-runtime.sh" "/usr/share/applications"
     [ "$(cat "$capture_dir/arch")" = "$arch" ] || fail "Expected appimagetool ARCH=$arch"
     [ "$(cat "$capture_dir/version")" = "2026.03.24.120000+appimage" ] || fail "Expected appimagetool VERSION override"
+}
+
+test_appimage_update_architecture_selection() {
+    info "Checking AppImage update architecture selection"
+    local runtime="$REPO_DIR/packaging/appimage/codex-appimage-runtime.sh"
+    local detected
+
+    detected="$(CODEX_APPIMAGE_ARCH_OVERRIDE=x86_64 bash -c 'source "$1"; codex_appimage_release_arch' _ "$runtime")"
+    [ "$detected" = "x86_64" ] || fail "Expected x86_64 AppImage release architecture"
+
+    detected="$(CODEX_APPIMAGE_ARCH_OVERRIDE=arm64 bash -c 'source "$1"; codex_appimage_release_arch' _ "$runtime")"
+    [ "$detected" = "aarch64" ] || fail "Expected aarch64 AppImage release architecture"
+
+    if CODEX_APPIMAGE_ARCH_OVERRIDE=armv7l bash -c 'source "$1"; codex_appimage_release_arch' _ "$runtime" >/dev/null 2>&1; then
+        fail "AppImage updater must reject unsupported ARM 32-bit architectures"
+    fi
+}
+
+test_app_architecture_validator() {
+    info "Checking generated app architecture validator"
+    local validator="$REPO_DIR/scripts/ci/validate-app-architecture.sh"
+    local workspace="$TMP_DIR/app-architecture-validator"
+    local app_dir="$workspace/app"
+
+    python3 - "$app_dir" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+paths = [
+    "electron",
+    "chrome_crashpad_handler",
+    "chrome-sandbox",
+    "resources/node-runtime/bin/node",
+    "resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+    "resources/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node",
+]
+header = bytearray(20)
+header[:4] = b"\x7fELF"
+header[4] = 2
+header[5] = 1
+header[18:20] = (62).to_bytes(2, "little")
+for relative in paths:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header)
+PY
+
+    "$validator" "$app_dir" x86_64 >/dev/null
+    if "$validator" "$app_dir" aarch64 >/dev/null 2>&1; then
+        fail "Architecture validator must reject an x86_64 payload labelled aarch64"
+    fi
 }
 
 test_missing_input_failure() {
@@ -1224,9 +1353,10 @@ test_make_install_reports_missing_native_packages() {
 
     mkdir -p "$workspace/dist"
 
-    for format in pacman rpm deb; do
+    for format in gentoo pacman rpm deb; do
         output_log="$workspace/$format.log"
         case "$format" in
+            gentoo) expected="No Gentoo overlay artifact found. Run 'make gentoo' first." ;;
             pacman) expected="No pacman package found. Run 'make pacman' first." ;;
             rpm) expected="No RPM package found. Run 'make rpm' first." ;;
             deb) expected="No Debian package found. Run 'make deb' first." ;;
@@ -2585,14 +2715,24 @@ test_upstream_build_app_workflow_tracks_dmg_metadata() {
 }
 
 test_release_artifacts_workflow_uses_short_asset_names() {
-    info "Checking release workflow short package asset names"
+    info "Checking release workflow short multi-architecture package asset names"
     local workflow="$REPO_DIR/.github/workflows/release-artifacts.yml"
 
     assert_file_exists "$workflow"
-    assert_contains "$workflow" 'codex-desktop-linux-amd64.deb'
-    assert_contains "$workflow" 'codex-desktop-linux-x86_64.rpm'
-    assert_contains "$workflow" 'codex-desktop-linux-x86_64.pkg.tar.zst'
-    assert_contains "$workflow" 'codex-desktop-linux-x86_64.AppImage'
+    assert_contains "$workflow" 'runner: ubuntu-24.04-arm'
+    assert_contains "$workflow" 'release_arch: aarch64'
+    assert_contains "$workflow" 'deb_arch: arm64'
+    assert_contains "$workflow" 'rpm_arch: aarch64'
+    assert_contains "$workflow" 'pacman_arch: aarch64'
+    assert_contains "$workflow" 'gentoo_arch: arm64'
+    assert_contains "$workflow" 'appimagetool_arch: aarch64'
+    assert_contains "$workflow" 'scripts/ci/validate-app-architecture.sh codex-app'
+    assert_contains "$workflow" 'codex-app-build-${{ matrix.release_arch }}'
+    assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.deb_arch }}.deb'
+    assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.rpm_arch }}.rpm'
+    assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.pacman_arch }}.pkg.tar.zst'
+    assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.gentoo_arch }}.gentoo.tar.zst'
+    assert_contains "$workflow" 'codex-desktop-linux-${{ matrix.release_arch }}.AppImage'
     assert_contains "$workflow" 'path: release-assets'
     assert_contains "$workflow" 'Release asset filenames are intentionally short'
 }
@@ -2612,14 +2752,26 @@ test_public_readme_claims_match_release_contract() {
 
     for artifact in \
         codex-desktop-linux-amd64.deb \
+        codex-desktop-linux-arm64.deb \
         codex-desktop-linux-x86_64.rpm \
+        codex-desktop-linux-aarch64.rpm \
         codex-desktop-linux-x86_64.pkg.tar.zst \
-        codex-desktop-linux-x86_64.AppImage
+        codex-desktop-linux-aarch64.pkg.tar.zst \
+        codex-desktop-linux-amd64.gentoo.tar.zst \
+        codex-desktop-linux-arm64.gentoo.tar.zst \
+        codex-desktop-linux-x86_64.AppImage \
+        codex-desktop-linux-aarch64.AppImage
     do
-        assert_contains "$readme" "$artifact"
-        assert_contains "$release_workflow" "$artifact"
         assert_contains "$release_doc" "$artifact"
     done
+
+    assert_contains "$readme" 'codex-desktop-linux-{amd64,arm64}.deb'
+    assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.rpm'
+    assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.pkg.tar.zst'
+    assert_contains "$readme" 'codex-desktop-linux-{amd64,arm64}.gentoo.tar.zst'
+    assert_contains "$readme" 'codex-desktop-linux-{x86_64,aarch64}.AppImage'
+    assert_contains "$release_workflow" 'release_arch: aarch64'
+    assert_contains "$release_workflow" 'deb_arch: arm64'
 
     for doc in \
         docs/BUILD.md \
@@ -2642,9 +2794,13 @@ test_public_readme_claims_match_release_contract() {
     assert_contains "$REPO_DIR/LICENSE" "MIT License"
 
     assert_contains "$readme" "Native packages include \`codex-update-manager\`"
+    assert_contains "$readme" "app-editors/codex-desktop-bin"
     assert_contains "$package_common" 'PACKAGE_WITH_UPDATER:-1'
     assert_contains "$package_common" 'cp "$UPDATER_BINARY_SOURCE" "$root/usr/bin/codex-update-manager"'
     assert_contains "$package_common" 'local update_builder_root="$root/opt/$PACKAGE_NAME/update-builder"'
+    assert_contains "$package_common" 'scripts/build-gentoo-bin.sh'
+    assert_file_exists "$REPO_DIR/packaging/gentoo/codex-desktop-bin.ebuild.template"
+    assert_contains "$REPO_DIR/packaging/gentoo/codex-desktop-bin.ebuild.template" "app-editors/codex-desktop-bin"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "/usr/bin/codex-desktop"
     assert_contains "$REPO_DIR/packaging/linux/codex-desktop.desktop" "codex-update-manager check-now"
     assert_contains "$readme" "AppImage builds are portable, check GitHub Releases on launch"
@@ -3268,7 +3424,7 @@ test_launcher_template_sanity() {
     assert_contains "$REPO_DIR/launcher/start.sh.template" "WEBVIEW_PID_FILE"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "owned_webview_server_pid"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "discover_webview_server_pid"
-    assert_contains "$REPO_DIR/launcher/start.sh.template" "Adopted existing webview server"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" "Replacing orphaned webview server"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "reconcile_runtime_state"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "detect_warm_start"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "send_warm_start_launch_action"
@@ -3461,6 +3617,7 @@ for marker in (
     "read_aloud_plugin_cache_synced",
     "launcher_lock_ready",
     "launch_state_refreshed_under_lock",
+    "webview_checked_under_lock",
 ):
     if f'log_phase "{marker}"' not in source:
         raise SystemExit(f"launcher must log phase marker {marker}")
@@ -3505,10 +3662,12 @@ if '[ "$cwd" != "$current_webview_dir" ]' not in stale_body:
     raise SystemExit("stale webview detection must catch servers moved into backup bundle directories")
 if 'ADOPTED_WEBVIEW_PID="$pid"' not in adopt_body:
     raise SystemExit("adopt_existing_webview_server must not mark a running app server as started by this launcher")
-if 'STARTED_WEBVIEW_PID="$pid"' not in adopt_body:
-    raise SystemExit("adopt_existing_webview_server must still own orphaned servers when no live app is running")
+if 'STARTED_WEBVIEW_PID="$pid"' in adopt_body:
+    raise SystemExit("the launcher must not adopt an orphaned server that an older launcher can still clean up")
 if "running_app_is_active" not in adopt_body:
     raise SystemExit("adopt_existing_webview_server must detect live-app reuse before cleanup")
+if "replace_orphaned_webview_server" not in adopt_body or "stop_owned_webview_server" not in adopt_body:
+    raise SystemExit("the launcher must replace an orphaned same-install webview server before cold start")
 if "if adopt_existing_webview_server; then" not in ensure_body:
     raise SystemExit("ensure_webview_server must split adoption from origin verification")
 if "stop_stale_webview_server" not in ensure_body:
@@ -3539,6 +3698,12 @@ if "trap 'exit 130' INT" not in source or "trap 'exit 143' TERM" not in source o
     raise SystemExit("launcher must cleanup through EXIT after INT/TERM/HUP")
 if not re.search(r'if needs_cold_start; then\s+acquire_launcher_lock\s+log_phase "launcher_lock_ready"\s+refresh_launch_state_quick\s+log_phase "launch_state_refreshed_under_lock"', source):
     raise SystemExit("launcher must do only a quick state refresh under the launcher lock")
+lock_pos = runtime_body.index("acquire_launcher_lock")
+webview_pos = runtime_body.index("ensure_webview_server", lock_pos)
+if not lock_pos < webview_pos:
+    raise SystemExit("cold-start webview ownership must be finalized under the launcher lock immediately before Electron")
+if "ensure_webview_server" in runtime_body[:lock_pos]:
+    raise SystemExit("cold-start setup must not adopt a webview server before the launcher lock")
 if 'CODEX_LAUNCHER_LOCK_WAIT_SECONDS:-5' not in source:
     raise SystemExit("launcher lock wait must default to 5 seconds so duplicate launches do not look hung")
 if 'flock -n 9' not in source or 'flock -w "$wait_seconds" 9' not in source:
@@ -3811,6 +3976,7 @@ EOF
     assert_contains "$REPO_DIR/scripts/lib/process-detection.sh" "Codex Desktop is currently running from"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "prompt_install_missing_cli"
     assert_contains "$REPO_DIR/launcher/start.sh.template" "prompt-install-cli"
+    assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" 'CODEX_SYNC_CLI_PREFLIGHT="${CODEX_SYNC_CLI_PREFLIGHT:-1}"'
     assert_contains "$REPO_DIR/launcher/start.sh.template" '.npm-global/bin/codex'
     assert_contains "$REPO_DIR/launcher/start.sh.template" '.config}/nvm/versions/node'
     assert_contains "$REPO_DIR/launcher/start.sh.template" "CODEX_UPDATE_MANAGER_PATH"
@@ -3846,6 +4012,9 @@ EOF
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "is-enabled codex-update-manager.service"
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "codex-update-manager-launch-check"
     assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "codex-update-manager check-now --if-stale"
+    assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID=\$!"
+    assert_contains "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" "codex_packaged_runtime_after_exit()"
+    assert_contains "$REPO_DIR/launcher/start.sh.template" 'run_packaged_runtime_after_exit "$status"'
     python3 - "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh" <<'PY'
 import sys
 
@@ -3962,6 +4131,33 @@ if (!launcher.includes('ln -sfnT "$target" "$link_path"')) {
 NODE
 }
 
+test_packaged_runtime_after_exit_reconciles_pending_openrc_update() {
+    info "Checking packaged runtime reconciles a pending update after Electron exits"
+    local workspace="$TMP_DIR/packaged-runtime-after-exit"
+    local bin_dir="$workspace/bin"
+    local capture_dir="$workspace/capture"
+
+    mkdir -p "$bin_dir" "$capture_dir"
+    cat > "$bin_dir/codex-update-manager" <<'SCRIPT'
+#!/bin/sh
+printf '%s\n' "$*" >> "$CAPTURE_DIR/update-manager-calls"
+SCRIPT
+    chmod 0755 "$bin_dir/codex-update-manager"
+
+    (
+        export PATH="$bin_dir:$PATH"
+        export CAPTURE_DIR="$capture_dir"
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/packaging/linux/codex-packaged-runtime.sh"
+        (sleep 0.1; printf '%s\n' done > "$capture_dir/background-finished") &
+        CODEX_PACKAGED_RUNTIME_UPDATE_CHECK_PID=$!
+        codex_packaged_runtime_after_exit 0
+    )
+
+    assert_file_exists "$capture_dir/background-finished"
+    assert_contains "$capture_dir/update-manager-calls" "check-now --if-stale"
+}
+
 test_process_detection_helper_cmdline_shapes() {
     info "Checking Electron helper process detection cmdline shapes"
     local nul_cmdline="$TMP_DIR/electron-helper-nul.cmdline"
@@ -4032,6 +4228,29 @@ test_side_by_side_launcher_identity() {
     assert_contains "$symlink_help_log" "Launches the Codex CUA Lab app."
 }
 
+test_browser_use_node_repl_architecture_override() {
+    info "Checking Browser Use node_repl verified architecture override"
+
+    (
+        warn() { :; }
+        info() { :; }
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/bundled-plugins.sh"
+
+        ARCH=aarch64
+        CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL="https://example.invalid/node-repl-arm64.tar.xz"
+        CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        [ "$(browser_use_node_repl_runtime_url)" = "$CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL" ]
+        [ "$(browser_use_node_repl_runtime_sha256)" = "$CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256" ]
+
+        unset CODEX_BROWSER_USE_NODE_REPL_RUNTIME_SHA256
+        ! browser_use_node_repl_runtime_sha256 >/dev/null 2>&1
+
+        unset CODEX_BROWSER_USE_NODE_REPL_RUNTIME_URL
+        ! browser_use_node_repl_runtime_url >/dev/null 2>&1
+    ) || fail "Expected ARM64 node_repl override to require a URL and SHA-256 together"
+}
+
 test_browser_use_node_repl_fallback_runtime() {
     info "Checking Browser Use node_repl fallback runtime"
     if [ "$(uname -m)" != "x86_64" ]; then
@@ -4096,11 +4315,84 @@ test_browser_use_node_repl_fallback_runtime() {
     cmp -s "$true_bin" "$install_dir/resources/node_repl" || fail "Expected fallback node_repl to come from the runtime archive"
     assert_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env?.\[e\]'
     assert_not_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env\[e\]'
+    assert_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" "codexLinuxBlockedProcessImport"
+    assert_not_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" "node:process"
+    assert_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" "codexLinuxOptionalAfterSubmittedHook"
     assert_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" "codexLinuxSiteStatusAllowlistFallback"
     assert_contains "$install_dir/resources/plugins/openai-bundled/plugins/browser/scripts/browser-client.mjs" "codexLinuxFileUrlPolicy"
     assert_contains "$output_log" "Browser Use node_repl runtime is not a Linux executable for x86_64; skipping"
     assert_not_contains "$output_log" "WARN.*Browser Use node_repl runtime is not a Linux executable"
     assert_contains "$output_log" "Downloading Browser Use node_repl fallback runtime"
+}
+
+test_browser_use_blocked_process_import_patch_behavior() {
+    info "Checking Browser Use blocked process import patch"
+    local workspace="$TMP_DIR/browser-blocked-process-import"
+    local client="$workspace/browser-client.mjs"
+
+    mkdir -p "$workspace"
+    cat > "$client" <<'JS'
+import { env as browserEnvironment } from "node:process";
+export const configHome = browserEnvironment.XDG_CONFIG_HOME ?? "fallback";
+JS
+
+    (
+        warn() { echo "[WARN] $*" >&2; }
+        info() { echo "[INFO] $*" >&2; }
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/bundled-plugins.sh"
+        patch_browser_use_blocked_process_import "$client"
+        patch_browser_use_blocked_process_import "$client"
+    )
+
+    assert_contains "$client" "codexLinuxBlockedProcessImport"
+    assert_contains "$client" 'globalThis.nodeRepl?.env??{}'
+    assert_not_contains "$client" "node:process"
+    node --input-type=module - "$client" <<'NODE'
+const modulePath = process.argv[2];
+const module = await import(`file://${modulePath}`);
+if (module.configHome !== "fallback") {
+  throw new Error(`Expected fallback config home, got ${module.configHome}`);
+}
+NODE
+}
+
+test_browser_use_optional_after_submitted_hook_patch_behavior() {
+    info "Checking Browser Use optional after-submit hook patch"
+    local workspace="$TMP_DIR/browser-optional-after-submit-hook"
+    local client="$workspace/browser-client.mjs"
+
+    mkdir -p "$workspace"
+    cat > "$client" <<'JS'
+var initialized = false;
+export function setup(bridge) {
+  initialized || (bridge.addAfterSubmittedCodeHook({ timeoutMs: 1 }), initialized = true);
+  return "ready";
+}
+JS
+
+    (
+        warn() { echo "[WARN] $*" >&2; }
+        info() { echo "[INFO] $*" >&2; }
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/bundled-plugins.sh"
+        patch_browser_use_optional_after_submitted_hook "$client"
+        patch_browser_use_optional_after_submitted_hook "$client"
+    )
+
+    assert_contains "$client" "codexLinuxOptionalAfterSubmittedHook"
+    node --input-type=module - "$client" <<'NODE'
+const modulePath = process.argv[2];
+const module = await import(`file://${modulePath}`);
+if (module.setup({}) !== "ready") {
+  throw new Error("Expected setup to tolerate a missing optional hook");
+}
+let hookCalls = 0;
+module.setup({ addAfterSubmittedCodeHook: () => { hookCalls += 1; } });
+if (hookCalls !== 1) {
+  throw new Error(`Expected the available hook to be registered once, got ${hookCalls}`);
+}
+NODE
 }
 
 test_browser_use_file_url_policy_patch_behavior() {
@@ -4206,6 +4498,9 @@ test_browser_plugin_renamed_upstream_staging() {
     assert_contains "$browser_dir/.codex-plugin/plugin.json" '"name":"browser"'
     assert_contains "$browser_dir/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env?.\[e\]'
     assert_not_contains "$browser_dir/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env\[e\]'
+    assert_contains "$browser_dir/scripts/browser-client.mjs" "codexLinuxBlockedProcessImport"
+    assert_not_contains "$browser_dir/scripts/browser-client.mjs" "node:process"
+    assert_contains "$browser_dir/scripts/browser-client.mjs" "codexLinuxOptionalAfterSubmittedHook"
     assert_contains "$browser_dir/scripts/browser-client.mjs" "nativePipe??import.meta.__codexNativePipe"
     assert_not_contains "$browser_dir/scripts/browser-client.mjs" "let e=import.meta.__codexNativePipe;return"
     assert_contains "$browser_dir/scripts/browser-client.mjs" "codexLinuxSiteStatusAllowlistFallback"
@@ -4285,7 +4580,7 @@ MD
 JSON
     cat > "$chrome_dir/scripts/browser-client.mjs" <<'JS'
 import{readdir as ZI}from"node:fs/promises";import L7,{platform as XI}from"node:os";import QI from"node:path";import{readFile as P7}from"fs/promises";import{resolve as D7}from"path";import{resolve as S7}from"path";import{homedir as v7,platform as E7}from"os";var Cd=S7(v7(),E7()==="win32"?"AppData\\Local\\Google\\Chrome\\User Data":"Library/Application Support/Google/Chrome");import{ClassicLevel as C7}from"./node_modules/classic-level.mjs";import{resolve as bg}from"path";import{tmpdir as T7}from"os";import{cp as A7,mkdtemp as I7,rm as HI}from"fs/promises";import{existsSync as k7}from"fs";var VI=async(e,t)=>{let r=bg(Cd,e,"Local Extension Settings",t);if(!k7(r))return null;let n=await I7(bg(R7(),"codex"));await A7(r,n,{recursive:!0}),await HI(bg(n,"LOCK"));let o=new C7(n,{createIfMissing:!1,keyEncoding:"utf8",valueEncoding:"utf8"});try{await o.open();let i=await o.get("extensionInstanceId");if(!i)return null;let s=JSON.parse(i);return typeof s!="string"?null:s}finally{await o.close(),await HI(n,{force:!0,recursive:!0})}},R7=()=>"nodeRepl"in globalThis&&globalThis.nodeRepl?globalThis.nodeRepl.tmpDir:T7();var GI=async e=>{if(e.type!=="extension"||!e.metadata?.extensionInstanceId||!e.metadata.extensionId)return e;let t=await N7(e.metadata.extensionId,e.metadata.extensionInstanceId);return t?{...e,metadata:{...e.metadata,profileName:t.name,profileIsLastUsed:t.isLastUsed.toString(),profileOrdering:t.orderingIndex.toString()}}:e},N7=async(e,t)=>(await O7(e)).find(o=>o.instanceId===t)||null,O7=async e=>{let t=await M7();return await Promise.all(t.map(async r=>({...r,instanceId:await VI(r.id,e).catch(n=>(le(n),null))})))},M7=async()=>{let e=D7(Cd,"Local State"),t=JSON.parse(await P7(e,"utf8"));return t.profile.profiles_order.map((r,n)=>{let o=t.profile.info_cache[r];return o?{id:r,name:o.name,isLastUsed:t.profile.last_used===r,orderingIndex:n,avatarUrl:o.avatar_icon}:null}).filter(r=>!!r)};
-var U7=5e3,_g=__(L7.platform()),j7=async(e,{codexSessionId:t})=>{let r=tl(p_),n=e.filter(i=>i.info.type==="iab"),o=q7(n,t,r);return await Promise.all(n.filter(i=>!o.includes(i)).map(async({api:i})=>i.close())),[...e.filter(i=>i.info.type!=="iab"),...o]},q7=(e,t,r)=>t==null?[]:e.filter(n=>n.info.metadata?.codexSessionId===t&&(r==null||n.info.metadata.codexAppBuildFlavor===r)),ek=async()=>{};
+var U7=5e3,_g=__(L7.platform()),j7=async(e,{codexSessionId:t})=>{let r=tl(p_),n=e.filter(i=>i.info.type==="iab"),o=q7(n,t,r);return await Promise.all(n.filter(i=>!o.includes(i)).map(async({api:i})=>i.close())),[...e.filter(i=>i.info.type!=="iab"),...o]},q7=(e,t,r)=>t==null?[]:e.filter(n=>n.info.metadata?.codexSessionId===t&&(r==null||n.info.metadata.codexAppBuildFlavor===r)),ek=async()=>{};import{env as browserEnvironment}from"node:process";var YD=!1;function codexTestHook(e){YD||(e.addAfterSubmittedCodeHook({timeoutMs:1,run:async()=>{}}),YD=!0)}
 function og(e){return e}function ig(e){return e==="extension"||e==="iab"||e==="cdp"}function li(e){return e}function KI(e){return e}class Id{async getBrowsers(){return[]}async get(e){return e}}function tI({browserId:e,clientInfo:t,requestedBrowserId:r}){return ig(r)?og(t.type)===r:e===r}function ld(){return null}async function mwe({globals:e}){let r=new Id,n=new Map(),l={browser_id:"extension"};if(ig(l.browser_id)){let _=li(l.browser_id);KI(_)}let p=await r.get(l.browser_id),f=n.get(p.api);return f}
 function lu(e){let t=globalThis.nodeRepl?.env[e];return typeof t=="string"?t:void 0}
 function Me(){let e=globalThis.nodeRepl;return e?.config==null?void 0:e}
@@ -4475,6 +4770,9 @@ test_chrome_plugin_staging() {
     assert_contains "$chrome_dir/scripts/browser-client.mjs" "getUserTabs()"
     assert_contains "$chrome_dir/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env?.\[e\]'
     assert_not_contains "$chrome_dir/scripts/browser-client.mjs" 'globalThis.nodeRepl?.env\[e\]'
+    assert_contains "$chrome_dir/scripts/browser-client.mjs" "codexLinuxBlockedProcessImport"
+    assert_not_contains "$chrome_dir/scripts/browser-client.mjs" "node:process"
+    assert_contains "$chrome_dir/scripts/browser-client.mjs" "codexLinuxOptionalAfterSubmittedHook"
     assert_contains "$chrome_dir/scripts/browser-client.mjs" "codexLinuxBrowserUseConfigShim"
     assert_contains "$chrome_dir/scripts/browser-client.mjs" "writeValue: codexLinuxBrowserUseIgnoreConfigWrite"
     assert_contains "$chrome_dir/scripts/browser-client.mjs" "batchWrite: codexLinuxBrowserUseIgnoreConfigWrite"
@@ -4595,34 +4893,68 @@ test_chrome_native_host_manifest_writer() {
     local plugin_dir="$workspace/plugin"
     local home_dir="$workspace/home"
     local app_dir="$workspace/app"
+    local runtime_dir="$workspace/runtime"
     local host_path="$workspace/extension-host"
+    local runtime_config_path="$workspace/extension-host-config.json"
     local manifest_path
 
-    mkdir -p "$plugin_dir/scripts" "$home_dir" "$app_dir/.codex-linux" "$(dirname "$host_path")"
-    printf '#!/bin/sh\n' > "$host_path"
-    chmod +x "$host_path"
-    cat > "$plugin_dir/scripts/extension-id.json" <<'JSON'
-{"extensionId":"abcdefghijklmnopabcdefghijklmnop","extensionHostName":"com.example.codextest"}
-JSON
+    mkdir -p \
+        "$plugin_dir/scripts" \
+        "$home_dir/.local/bin" \
+        "$app_dir/.codex-linux" \
+        "$runtime_dir/resources" \
+        "$(dirname "$host_path")"
+    printf 'patched browser client\n' > "$plugin_dir/scripts/browser-client.mjs"
+    for executable in \
+        "$host_path" \
+        "$home_dir/.local/bin/codex" \
+        "$runtime_dir/node" \
+        "$runtime_dir/node_repl"; do
+        printf '#!/bin/sh\n' > "$executable"
+        chmod +x "$executable"
+    done
+    cat > "$plugin_dir/scripts/installManifest.mjs" <<'JS'
+var config={channel:"prod",extensionHostName:"com.example.codextest",extensionIds:["abcdefghijklmnopabcdefghijklmnop","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]};
+JS
     printf '%s\n' ".config/example-browser/NativeMessagingHosts" > "$app_dir/.codex-linux/chrome-native-host-manifest-paths"
 
-    python3 - "$REPO_DIR/launcher/start.sh.template" "$host_path" "$home_dir" "$plugin_dir" "$app_dir" <<'PY'
+    python3 - "$REPO_DIR/launcher/start.sh.template" "$host_path" "$home_dir" "$plugin_dir" "$app_dir" "$runtime_dir" <<'PY'
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-marker = "python3 - \"$host_path\" \"$HOME\" \"$plugin_dir\" \"$SCRIPT_DIR\" <<'PY'\n"
+marker = "python3 - \"$host_path\" \"$HOME\" \"$plugin_dir\" \"$SCRIPT_DIR\" \"$BROWSER_USE_RUNTIME_LINK_DIR\" <<'PY'\n"
 start = source.index(marker) + len(marker)
 end = source.index("\nPY\n", start)
 script = source[start:end]
+environment = dict(os.environ)
+environment.update(
+    {
+        "CODEX_BROWSER_USE_NODE_PATH": str(Path(sys.argv[6]) / "node"),
+        "CODEX_CLI_PATH": str(Path(sys.argv[3]) / ".local/bin/codex"),
+        "CODEX_ELECTRON_RESOURCES_PATH": str(Path(sys.argv[6]) / "resources"),
+        "CODEX_HOME": str(Path(sys.argv[3]) / ".codex"),
+        "CODEX_NODE_REPL_PATH": str(Path(sys.argv[6]) / "node_repl"),
+    }
+)
 subprocess.run(
-    ["python3", "-", sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]],
+    ["python3", "-", sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]],
     input=script,
     text=True,
     check=True,
+    env=environment,
 )
 PY
+
+    assert_file_exists "$runtime_config_path"
+    assert_contains "$runtime_config_path" '"schemaVersion": 1'
+    assert_contains "$runtime_config_path" '"channel": "prod"'
+    assert_contains "$runtime_config_path" "$plugin_dir/scripts/browser-client.mjs"
+    assert_contains "$runtime_config_path" "$home_dir/.local/bin/codex"
+    assert_contains "$runtime_config_path" "$runtime_dir/node"
+    assert_contains "$runtime_config_path" "$runtime_dir/node_repl"
 
     for relative in \
         ".config/google-chrome/NativeMessagingHosts" \
@@ -4633,6 +4965,7 @@ PY
         assert_file_exists "$manifest_path"
         assert_contains "$manifest_path" "com.example.codextest"
         assert_contains "$manifest_path" "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"
+        assert_contains "$manifest_path" "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/"
         assert_contains "$manifest_path" "$host_path"
     done
 }
@@ -6626,7 +6959,10 @@ main() {
     test_update_manager_service_helper_respects_disabled_service
     test_rpm_builder_smoke
     test_pacman_builder_without_updater_transition_hook
+    test_gentoo_builder_smoke
     test_appimage_builder_smoke
+    test_appimage_update_architecture_selection
+    test_app_architecture_validator
     test_missing_input_failure
     test_make_install_reports_missing_native_packages
     test_make_run_app_reports_missing_launcher
@@ -6675,7 +7011,10 @@ main() {
     test_native_module_rebuild_uses_local_electron_rebuild_toolchain
     test_native_module_rebuild_accepts_prebuilt_source
     test_bundled_plugin_builders_accept_prebuilt_binaries
+    test_browser_use_node_repl_architecture_override
     test_browser_use_node_repl_fallback_runtime
+    test_browser_use_blocked_process_import_patch_behavior
+    test_browser_use_optional_after_submitted_hook_patch_behavior
     test_browser_use_file_url_policy_patch_behavior
     test_browser_plugin_renamed_upstream_staging
     test_browser_use_node_repl_glibc_pidfd_patch_static
@@ -6685,6 +7024,7 @@ main() {
     test_chrome_marketplace_fallback_synthesis
     test_chrome_native_host_manifest_writer
     test_launcher_template_sanity
+    test_packaged_runtime_after_exit_reconciles_pending_openrc_update
     test_process_detection_helper_cmdline_shapes
     test_webview_probe_equivalence
     test_side_by_side_launcher_identity

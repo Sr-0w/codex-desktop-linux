@@ -21,7 +21,7 @@ Contributions of all sizes are welcome: bug reports, documentation improvements,
 Please take a moment to understand how this repository is structured before making changes.
 
 - `install.sh` is the top-level installer entrypoint. Build-pipeline logic lives in `scripts/lib/*.sh` (DMG handling, ASAR patching, native modules, Electron download, bundled plugins) and the runtime launcher body lives in `launcher/start.sh.template`. Edit the template for launcher behavior and a lib file for build-pipeline behavior — `install.sh` itself is just orchestration plus the prelude that bakes install-time identity into the generated launcher.
-- `scripts/build-deb.sh`, `scripts/build-rpm.sh`, and `scripts/build-pacman.sh` package an already-generated `codex-app/`.
+- `scripts/build-deb.sh`, `scripts/build-rpm.sh`, `scripts/build-pacman.sh`, and `scripts/build-gentoo-bin.sh` package an already-generated `codex-app/`.
 - `scripts/install-deps.sh` bootstraps local development dependencies.
 - `updater/` contains the Rust update manager.
 - `scripts/patch-linux-window-ui.js` contains fail-soft ASAR patches for Linux behavior.
@@ -51,7 +51,7 @@ Before opening a new issue or pull request:
 Good issue reports usually include:
 
 - distro and version
-- package format used: `.deb`, `.rpm`, `.pkg.tar.zst`, or dev build
+- package format used: `.deb`, `.rpm`, `.pkg.tar.zst`, `.gentoo.tar.zst`, or dev build
 - whether the issue happens in `install.sh`, packaged runtime, updater, or generated launcher
 - exact commands used
 - expected behavior
@@ -169,6 +169,7 @@ bash -n scripts/install-deps.sh
 bash -n scripts/build-deb.sh
 bash -n scripts/build-rpm.sh
 bash -n scripts/build-pacman.sh
+bash -n scripts/build-gentoo-bin.sh
 cargo check -p codex-update-manager
 cargo test -p codex-update-manager
 bash tests/scripts_smoke.sh
@@ -180,6 +181,7 @@ If your change affects packaging, also run the relevant package builds:
 ./scripts/build-deb.sh
 ./scripts/build-rpm.sh
 ./scripts/build-pacman.sh
+./scripts/build-gentoo-bin.sh
 ```
 
 If your change affects launcher behavior, inspect the generated launcher:

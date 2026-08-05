@@ -12,7 +12,8 @@ resources, Chrome native messaging, and Linux Computer Use support.
 ## What This Project Does
 
 - Builds Linux packages from the upstream Codex Desktop app.
-- Ships `.deb`, `.rpm`, pacman, and AppImage artifacts through GitHub Releases.
+- Ships `.deb`, `.rpm`, pacman, Gentoo overlay, and AppImage artifacts through
+  GitHub Releases.
 - Rebuilds native Electron modules for Linux.
 - Adds Linux launcher behavior for desktop sessions, app identity, warm starts,
   local webview assets, and runtime paths.
@@ -27,18 +28,29 @@ per account. This wrapper does not unlock account-gated functionality.
 Download the latest package from
 [GitHub Releases](https://github.com/Sr-0w/codex-desktop-linux/releases/latest).
 
-| Platform | Artifact | Install command |
+Choose `amd64`/`x86_64` for Intel or AMD systems and `arm64`/`aarch64` for
+64-bit ARM systems such as a Raspberry Pi 4 running a 64-bit OS.
+
+| Platform | Artifact pattern | Install command |
 |---|---|---|
-| Debian, Ubuntu, Pop!_OS, Mint | `codex-desktop-linux-amd64.deb` | `sudo apt install ./codex-desktop-linux-amd64.deb` |
-| Fedora | `codex-desktop-linux-x86_64.rpm` | `sudo dnf install ./codex-desktop-linux-x86_64.rpm` |
-| openSUSE | `codex-desktop-linux-x86_64.rpm` | `sudo zypper install ./codex-desktop-linux-x86_64.rpm` |
-| Arch, Manjaro, EndeavourOS | `codex-desktop-linux-x86_64.pkg.tar.zst` | `sudo pacman -U ./codex-desktop-linux-x86_64.pkg.tar.zst` |
-| Other Linux distros | `codex-desktop-linux-x86_64.AppImage` | `chmod +x ./codex-desktop-linux-x86_64.AppImage && ./codex-desktop-linux-x86_64.AppImage` |
+| Debian, Ubuntu, Raspberry Pi OS, Pop!_OS, Mint | `codex-desktop-linux-{amd64,arm64}.deb` | `sudo apt install ./codex-desktop-linux-<arch>.deb` |
+| Fedora | `codex-desktop-linux-{x86_64,aarch64}.rpm` | `sudo dnf install ./codex-desktop-linux-<arch>.rpm` |
+| openSUSE | `codex-desktop-linux-{x86_64,aarch64}.rpm` | `sudo zypper install ./codex-desktop-linux-<arch>.rpm` |
+| Arch, Manjaro, EndeavourOS, Arch Linux ARM | `codex-desktop-linux-{x86_64,aarch64}.pkg.tar.zst` | `sudo pacman -U ./codex-desktop-linux-<arch>.pkg.tar.zst` |
+| Gentoo | `codex-desktop-linux-{amd64,arm64}.gentoo.tar.zst` | `tar -xf codex-desktop-linux-<arch>.gentoo.tar.zst && sudo ./codex-desktop-linux-gentoo/install-gentoo.sh` |
+| Other 64-bit glibc distros | `codex-desktop-linux-{x86_64,aarch64}.AppImage` | `chmod +x ./codex-desktop-linux-<arch>.AppImage && ./codex-desktop-linux-<arch>.AppImage` |
 
 Native packages install the app as `codex-desktop` and include the local update
-manager. AppImage builds are portable, check GitHub Releases on launch, and can
-download and replace the AppImage after confirmation when a newer release is
-published.
+manager. The Gentoo release installs `app-editors/codex-desktop-bin` from a
+local Portage overlay. AppImage builds are portable, check GitHub Releases on launch, and can download and replace the AppImage after confirmation when a
+newer release is published.
+
+ARM64 packages currently include the app, CLI integration, native updater,
+Chrome native host, and Linux Computer Use binaries. OpenAI's separately
+published privileged Browser Use `node_repl` runtime is currently available to
+this project only for Linux x86_64. Browser Use on ARM64 remains unavailable
+unless a verified ARM64 runtime is supplied during the build. ARM 32-bit and
+musl-only distributions are not release targets.
 
 ## After Install
 

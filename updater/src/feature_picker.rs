@@ -158,15 +158,27 @@ fn has_display() -> bool {
     })
 }
 
-/// The dialog helper to use, preferring zenity then kdialog (PATH lookup).
+/// The dialog helper to use, preferring the desktop-native KDE helper on Plasma.
 fn dialog_tool() -> Option<DialogTool> {
-    if which("zenity").is_some() {
+    let kdialog = which("kdialog");
+    let zenity = which("zenity");
+    if prefers_kdialog() && kdialog.is_some() {
+        Some(DialogTool::Kdialog)
+    } else if zenity.is_some() {
         Some(DialogTool::Zenity)
-    } else if which("kdialog").is_some() {
+    } else if kdialog.is_some() {
         Some(DialogTool::Kdialog)
     } else {
         None
     }
+}
+
+fn prefers_kdialog() -> bool {
+    ["XDG_CURRENT_DESKTOP", "DESKTOP_SESSION"]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .map(|value| value.to_ascii_lowercase())
+        .any(|value| value.contains("kde") || value.contains("plasma"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,7 +420,7 @@ fn which(tool: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_util::env_lock;
+    use crate::test_util::{env_lock, EnvRestoreGuard};
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
 
@@ -484,21 +496,21 @@ if (arg === "--features-json") {
         String::from_utf8(output.stdout).unwrap().trim().to_string()
     }
 
-    /// Installs a fake dialog tool on a temp PATH that echoes `stdout_lines` and
-    /// exits with `exit_code`. Returns the temp dir (keep alive) and the PATH.
-    fn fake_dialog(
-        name: &str,
-        stdout_lines: &str,
-        exit_code: i32,
-    ) -> (tempfile::TempDir, std::ffi::OsString) {
+    /// Installs fake zenity and kdialog tools on a temp PATH that echo
+    /// `stdout_lines` and exit with `exit_code`. Both helpers must be faked:
+    /// Plasma prefers kdialog, and falling through to a real system kdialog
+    /// would make these unit tests open interactive windows.
+    fn fake_dialogs(stdout_lines: &str, exit_code: i32) -> (tempfile::TempDir, std::ffi::OsString) {
         let dir = tempdir().unwrap();
-        let bin = dir.path().join(name);
-        std::fs::write(
-            &bin,
-            format!("#!/bin/sh\nprintf '%s' \"{stdout_lines}\"\nexit {exit_code}\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for name in ["zenity", "kdialog"] {
+            let bin = dir.path().join(name);
+            std::fs::write(
+                &bin,
+                format!("#!/bin/sh\nprintf '%s' \"{stdout_lines}\"\nexit {exit_code}\n"),
+            )
+            .unwrap();
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let path = dir.path().as_os_str().to_os_string();
         (dir, path)
     }
@@ -611,6 +623,14 @@ if (arg === "--features-json") {
     #[test]
     fn selection_writes_feature_config_outside_wrapper_src() {
         let _g = env_lock();
+        let _restore_env = EnvRestoreGuard::capture(&[
+            "CODEX_LINUX_SETTINGS_FILE",
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "PATH",
+            "XDG_CURRENT_DESKTOP",
+            "DESKTOP_SESSION",
+        ]);
         let root = tempdir().unwrap();
         let settings = tempdir().unwrap();
         write_fake_catalog_script(root.path());
@@ -622,9 +642,11 @@ if (arg === "--features-json") {
         std::env::set_var("CODEX_LINUX_SETTINGS_FILE", &settings_file);
         std::env::set_var("DISPLAY", ":99");
         std::env::remove_var("WAYLAND_DISPLAY");
+        std::env::set_var("XDG_CURRENT_DESKTOP", "KDE");
+        std::env::remove_var("DESKTOP_SESSION");
 
-        // zenity selects beta + alpha (no sentinel).
-        let (_d, fake_path) = fake_dialog("zenity", "beta\nalpha", 0);
+        // Plasma selects the fake kdialog, which returns beta + alpha.
+        let (_d, fake_path) = fake_dialogs("beta\nalpha", 0);
         let prev_path = std::env::var_os("PATH");
         let mut joined = fake_path.clone();
         if let Some(prev) = &prev_path {
@@ -686,7 +708,7 @@ if (arg === "--features-json") {
         std::env::set_var("DISPLAY", ":99");
         std::env::remove_var("WAYLAND_DISPLAY");
 
-        let (_d, fake_path) = fake_dialog("zenity", "beta", 0);
+        let (_d, fake_path) = fake_dialogs("beta", 0);
         let prev_path = std::env::var_os("PATH");
         let mut joined = fake_path.clone();
         if let Some(prev) = &prev_path {
@@ -732,7 +754,7 @@ if (arg === "--features-json") {
         std::env::remove_var("WAYLAND_DISPLAY");
 
         // Selection includes the sentinel + alpha.
-        let (_d, fake_path) = fake_dialog("zenity", "alpha\n__dont_ask_again__", 0);
+        let (_d, fake_path) = fake_dialogs("alpha\n__dont_ask_again__", 0);
         let prev_path = std::env::var_os("PATH");
         let mut joined = fake_path.clone();
         if let Some(prev) = &prev_path {
@@ -783,7 +805,7 @@ if (arg === "--features-json") {
         std::env::remove_var("WAYLAND_DISPLAY");
 
         // Nonzero exit = cancel.
-        let (_d, fake_path) = fake_dialog("zenity", "", 1);
+        let (_d, fake_path) = fake_dialogs("", 1);
         let prev_path = std::env::var_os("PATH");
         let mut joined = fake_path.clone();
         if let Some(prev) = &prev_path {
@@ -819,6 +841,34 @@ if (arg === "--features-json") {
 
         if let Some(prev) = prev_path {
             std::env::set_var("PATH", prev);
+        }
+    }
+
+    #[test]
+    fn dialog_tool_prefers_kdialog_on_plasma() {
+        let _g = env_lock();
+        let dir = tempdir().unwrap();
+        for name in ["kdialog", "zenity"] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let prev_path = std::env::var_os("PATH");
+        let prev_desktop = std::env::var_os("XDG_CURRENT_DESKTOP");
+        std::env::set_var("PATH", dir.path());
+        std::env::set_var("XDG_CURRENT_DESKTOP", "KDE");
+
+        assert_eq!(dialog_tool(), Some(DialogTool::Kdialog));
+
+        if let Some(prev) = prev_path {
+            std::env::set_var("PATH", prev);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        if let Some(prev) = prev_desktop {
+            std::env::set_var("XDG_CURRENT_DESKTOP", prev);
+        } else {
+            std::env::remove_var("XDG_CURRENT_DESKTOP");
         }
     }
 

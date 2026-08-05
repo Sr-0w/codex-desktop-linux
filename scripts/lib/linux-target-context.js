@@ -7,6 +7,7 @@ const path = require("node:path");
 const DEB_IDS = ["debian", "ubuntu", "linuxmint", "pop", "elementary", "zorin"];
 const RPM_IDS = ["fedora", "rhel", "centos", "rocky", "almalinux", "ol", "sles", "suse", "opensuse"];
 const PACMAN_IDS = ["arch", "archlinux", "manjaro", "endeavouros", "artix"];
+const GENTOO_IDS = ["gentoo"];
 
 function trimOsReleaseValue(value) {
   return String(value ?? "").trim().replace(/^["']|["']$/g, "");
@@ -130,6 +131,9 @@ function detectPackageFormat(tokens, env) {
   if (tokenMatches(tokens, PACMAN_IDS)) {
     return "pacman";
   }
+  if (tokenMatches(tokens, GENTOO_IDS)) {
+    return "gentoo";
+  }
   if (tokenMatches(tokens, RPM_IDS)) {
     return "rpm";
   }
@@ -138,6 +142,9 @@ function detectPackageFormat(tokens, env) {
   }
   if (executableExists("pacman", env) && !executableExists("dpkg-deb", env)) {
     return "pacman";
+  }
+  if (executableExists("emerge", env) && !executableExists("dpkg-deb", env)) {
+    return "gentoo";
   }
   if (executableExists("rpmbuild", env) && !executableExists("dpkg-deb", env)) {
     return "rpm";
@@ -151,6 +158,9 @@ function detectPackageFormat(tokens, env) {
   if (executableExists("pacman", env)) {
     return "pacman";
   }
+  if (executableExists("emerge", env)) {
+    return "gentoo";
+  }
   return "unknown";
 }
 
@@ -161,6 +171,9 @@ function detectPackageManager(tokens, env, versionMajorValue) {
   }
   if (tokenMatches(tokens, PACMAN_IDS)) {
     return "pacman";
+  }
+  if (tokenMatches(tokens, GENTOO_IDS)) {
+    return "emerge";
   }
   if (tokenMatches(tokens, DEB_IDS)) {
     return "apt";
@@ -180,7 +193,7 @@ function detectPackageManager(tokens, env, versionMajorValue) {
     }
     return "unknown";
   }
-  for (const command of ["apt", "dnf5", "dnf", "pacman", "zypper"]) {
+  for (const command of ["apt", "dnf5", "dnf", "pacman", "emerge", "zypper"]) {
     if (executableExists(command, env)) {
       return command;
     }
@@ -266,6 +279,7 @@ function linuxTargetSummary(target) {
 
 module.exports = {
   DEB_IDS,
+  GENTOO_IDS,
   PACMAN_IDS,
   RPM_IDS,
   detectLinuxTargetContext,
