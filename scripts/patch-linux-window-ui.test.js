@@ -1010,6 +1010,13 @@ function nativeLinuxTrayBundleFixture() {
   ].join("");
 }
 
+function nativeLinuxTrayGuidBundleFixture() {
+  return nativeLinuxTrayBundleFixture().replace(
+    "n=new l.Tray(t.defaultIcon)",
+    "n=new l.Tray(t.defaultIcon,process.platform===`win32`&&l.app.isPackaged?dEe(e.buildFlavor):void 0)",
+  );
+}
+
 function nativeLinuxTrayRefreshHelperBundleFixture() {
   return nativeLinuxTrayBundleFixture().replace(
     "this.trayMenuThreads=e.trayMenuThreads,this.refreshCachedWindowsTrayMenu(),this.updatePersistentTrayMenu();return}}refreshCachedWindowsTrayMenu(){}",
@@ -3280,6 +3287,26 @@ test("adapts the current upstream native Linux tray without legacy drift warning
   assert.doesNotMatch(patched, /setLinuxTrayContextMenu\(\)/);
 });
 
+test("omits the optional Windows tray GUID argument on Linux", () => {
+  const source = nativeLinuxTrayGuidBundleFixture();
+  const iconPathExpression =
+    "process.resourcesPath+`/../content/webview/assets/app-D0g8sCle.png`";
+  const patched = applyPatchTwice(
+    applyLinuxTrayPatch,
+    source,
+    iconPathExpression,
+  );
+
+  assert.match(
+    patched,
+    /n=process\.platform===`win32`&&l\.app\.isPackaged\?new l\.Tray\(t\.defaultIcon,dEe\(e\.buildFlavor\)\):new l\.Tray\(t\.defaultIcon\)/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /new l\.Tray\(t\.defaultIcon,process\.platform===`win32`/,
+  );
+});
+
 test("follows current upstream tray refresh helper methods", () => {
   const source = nativeLinuxTrayRefreshHelperBundleFixture();
   const iconPathExpression =
@@ -5529,6 +5556,21 @@ test("enables the existing app update menu on Linux", () => {
   assert.match(
     patched,
     /d=t\.C\.shouldIncludeSparkle\(a,process\.platform,process\.env\)\|\|process\.platform===`linux`/,
+  );
+});
+
+test("keeps the current Help update item visible on Linux", () => {
+  const source =
+    "let d=t.C.shouldIncludeSparkle(a,process.platform,process.env)||process.platform===`linux`,Ot={label:b.formatMessage({defaultMessage:`Check for Updates…`})},Ht=[{role:`help`,submenu:[...s&&process.platform!==`linux`?[Ot]:[],Ae]}];";
+  const patched = applyPatchTwice(applyLinuxAppUpdaterMenuPatch, source);
+
+  assert.match(
+    patched,
+    /\.\.\.\(process\.platform===`linux`\|\|s\)\?\[Ot\]:\[\]/,
+  );
+  assert.doesNotMatch(
+    patched,
+    /s&&process\.platform!==`linux`\?\[Ot\]/,
   );
 });
 

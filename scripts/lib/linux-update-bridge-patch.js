@@ -429,18 +429,45 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
 }
 
 function applyLinuxAppUpdaterMenuPatch(currentSource) {
-  if (/[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\.shouldIncludeSparkle\([A-Za-z_$][\w$]*,process\.platform,process\.env\)\|\|process\.platform===`linux`/.test(currentSource)) {
-    return currentSource;
-  }
+  let patchedSource = currentSource;
+  const hasLinuxUpdaterGate =
+    /[A-Za-z_$][\w$]*=[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\.shouldIncludeSparkle\([A-Za-z_$][\w$]*,process\.platform,process\.env\)\|\|process\.platform===`linux`/.test(
+      patchedSource,
+    );
   const menuRegex =
     /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\.shouldIncludeSparkle\(([A-Za-z_$][\w$]*),process\.platform,process\.env\)/;
-  if (!menuRegex.test(currentSource)) {
-    if (currentSource.includes("enableSparkle") && currentSource.includes("shouldIncludeSparkle")) {
-      console.warn("WARN: Could not find update menu feature gate - skipping Linux update menu patch");
-    }
-    return currentSource;
+  if (!hasLinuxUpdaterGate && menuRegex.test(patchedSource)) {
+    patchedSource = patchedSource.replace(
+      menuRegex,
+      "$1=$2.$3.shouldIncludeSparkle($4,process.platform,process.env)||process.platform===`linux`",
+    );
+  } else if (
+    !hasLinuxUpdaterGate &&
+    patchedSource.includes("enableSparkle") &&
+    patchedSource.includes("shouldIncludeSparkle")
+  ) {
+    console.warn("WARN: Could not find update menu feature gate - skipping Linux update menu patch");
   }
-  return currentSource.replace(menuRegex, "$1=$2.$3.shouldIncludeSparkle($4,process.platform,process.env)||process.platform===`linux`");
+
+  const updateLabelIndex = patchedSource.indexOf("defaultMessage:`Check for Updates");
+  if (updateLabelIndex !== -1) {
+    const helpMenuTail = patchedSource.slice(updateLabelIndex);
+    const linuxExcludedItemRegex =
+      /\.\.\.([A-Za-z_$][\w$]*)&&process\.platform!==`linux`\?\[([A-Za-z_$][\w$]*)\]:\[\]/;
+    const linuxExcludedItemMatch = helpMenuTail.match(linuxExcludedItemRegex);
+    if (linuxExcludedItemMatch != null) {
+      const [match, featureGate, updateItem] = linuxExcludedItemMatch;
+      const matchIndex = updateLabelIndex + linuxExcludedItemMatch.index;
+      const replacement =
+        `...(process.platform===\`linux\`||${featureGate})?[${updateItem}]:[]`;
+      patchedSource =
+        patchedSource.slice(0, matchIndex) +
+        replacement +
+        patchedSource.slice(matchIndex + match.length);
+    }
+  }
+
+  return patchedSource;
 }
 
 function patchLinuxAppUpdaterBridge(extractedDir) {

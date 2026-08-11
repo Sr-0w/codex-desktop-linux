@@ -278,8 +278,18 @@ function applyLinuxTrayReadinessFallbackPatch(currentSource) {
   return patchedSource;
 }
 
+function applyLinuxTrayGuidPatch(currentSource) {
+  return currentSource.replace(
+    /new ([A-Za-z_$][\w$]*)\.Tray\(([^,]+),process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.app\.isPackaged\?([A-Za-z_$][\w$]*)\(([^)]*)\):void 0\)/g,
+    (_match, electronAlias, iconExpression, appAlias, guidHelper, guidArguments) =>
+      `process.platform===\`win32\`&&${appAlias}.app.isPackaged?new ${electronAlias}.Tray(${iconExpression},${guidHelper}(${guidArguments})):new ${electronAlias}.Tray(${iconExpression})`,
+  );
+}
+
 function applyLinuxTrayPatch(currentSource, iconPathExpression) {
-  let patchedSource = applyLinuxTrayReadinessFallbackPatch(currentSource);
+  let patchedSource = applyLinuxTrayGuidPatch(
+    applyLinuxTrayReadinessFallbackPatch(currentSource),
+  );
   const electronVar = requireName(currentSource, "electron") ?? "n";
   const packagedTrayIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop-tray.png`";
   const packagedAppIconPathExpression = "process.resourcesPath+`/../.codex-linux/codex-desktop.png`";

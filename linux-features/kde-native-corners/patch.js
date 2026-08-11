@@ -4,7 +4,7 @@ function applyMainBundlePatch(source) {
   const legacyPrimaryWindowOptions =
     "n===`linux`?{titleBarStyle:`hidden`,titleBarOverlay:codexLinuxTitleBarOverlay(r)}:{titleBarStyle:`default`}";
   const nativePrimaryWindowOptions =
-    "n===`linux`?{titleBarStyle:`default`,autoHideMenuBar:!0}:{titleBarStyle:`default`}";
+    "n===`linux`?{titleBarStyle:`default`}:{titleBarStyle:`default`}";
 
   let patched = source;
   if (patched.includes(legacyPrimaryWindowOptions)) {
@@ -18,10 +18,10 @@ function applyMainBundlePatch(source) {
       const appearanceVar = currentMatch[2];
       patched = patched.replace(
         currentPrimaryWindowOptions,
-        `${platformVar}===\`linux\`?${appearanceVar}===\`primary\`?{titleBarStyle:\`default\`,autoHideMenuBar:!0}:{titleBarStyle:\`hidden\`,resizable:!0}`,
+        `${platformVar}===\`linux\`?${appearanceVar}===\`primary\`?{titleBarStyle:\`default\`}:{titleBarStyle:\`hidden\`,resizable:!0}`,
       );
     } else if (
-      !/===`linux`\?[A-Za-z_$][\w$]*===`primary`\?\{titleBarStyle:`default`,autoHideMenuBar:!0\}/.test(
+      !/===`linux`\?[A-Za-z_$][\w$]*===`primary`\?\{titleBarStyle:`default`\}/.test(
         patched,
       )
     ) {

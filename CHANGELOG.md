@@ -86,6 +86,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Fixed system tray startup with Electron 42 by omitting the Windows-only tray
+  GUID constructor argument on Linux.
+- Kept the Help update item visible on Linux after upstream added a separate
+  Linux exclusion around the current menu entry.
+- KDE native window integration now leaves the application menu visible while
+  using KWin decorations for the primary window.
 - Help > Check for Updates now confirms when Codex Desktop is already up to
   date, including the installed native package version when available.
 - Native module rebuilding now detects, compiles, stages, validates, and pins

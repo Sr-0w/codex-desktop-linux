@@ -20,7 +20,7 @@ test("uses native KDE decorations only for the current primary window", () => {
 
   assert.match(
     patched,
-    /n===`linux`\?e===`primary`\?\{titleBarStyle:`default`,autoHideMenuBar:!0\}:\{titleBarStyle:`hidden`,resizable:!0\}/,
+    /n===`linux`\?e===`primary`\?\{titleBarStyle:`default`\}:\{titleBarStyle:`hidden`,resizable:!0\}/,
   );
 });
 
@@ -34,7 +34,7 @@ test("runs after core titlebar patching and before frameless cleanup", () => {
 
   assert.match(
     combined,
-    /n===`linux`\?e===`primary`\?\{titleBarStyle:`default`,autoHideMenuBar:!0\}:\{titleBarStyle:`hidden`,resizable:!0\}/,
+    /n===`linux`\?e===`primary`\?\{titleBarStyle:`default`\}:\{titleBarStyle:`hidden`,resizable:!0\}/,
   );
   assert.doesNotMatch(combined, /titleBarOverlay:codexLinuxTitleBarOverlay/);
 });

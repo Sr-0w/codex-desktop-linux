@@ -51,7 +51,7 @@ function applyFramelessTitlebarBranchPatch(currentSource) {
   });
 
   const hasKdeNativePrimaryBranch =
-    /===`linux`\?[A-Za-z_$][\w$]*===`primary`\?\{titleBarStyle:`default`,autoHideMenuBar:!0\}:\{titleBarStyle:`hidden`,resizable:!0\}/.test(
+    /===`linux`\?[A-Za-z_$][\w$]*===`primary`\?\{titleBarStyle:`default`(?:,autoHideMenuBar:!0)?\}:\{titleBarStyle:`hidden`,resizable:!0\}/.test(
       patchedSource,
     );
   if (
