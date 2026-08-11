@@ -5198,6 +5198,8 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /function codexLinuxUpdateLifecycleState\(e\)/);
   assert.match(patched, /function codexLinuxUpdateManagerPath\(\)/);
   assert.match(patched, /function codexLinuxUpdateErrorDetail\(e\)/);
+  assert.match(patched, /function codexLinuxUpToDateDetail\(e\)/);
+  assert.match(patched, /Installed package \$\{t\} is the latest available version\./);
   assert.match(patched, /async function codexLinuxShowUpdateMessage\(codexLinuxMessage,codexLinuxDetail\)/);
   assert.match(patched, /function codexLinuxInstallAfterQuit\(\)/);
   assert.match(patched, /function codexLinuxQuitForUpdate\(\)/);
@@ -5225,6 +5227,8 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /async initializeLinuxPackageUpdater\(\)/);
   assert.match(patched, /this\.updater=\{setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\},checkForUpdates/);
   assert.match(patched, /codexLinuxRunUpdateManager\(\[`check-now`\]\)/);
+  assert.match(patched, /Codex Desktop is up to date/);
+  assert.match(patched, /n\.status===`idle`\|\|n\.status===`installed`/);
   assert.match(patched, /codexLinuxShowUpdateMessage\(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail\(t\)\)/);
   assert.match(patched, /codexLinuxRunUpdateManager\(\[`install-ready`\]\)/);
   assert.match(patched, /this\.setInstallProgressPercent\(0\),this\.setUpdateLifecycleState\(`installing`\)/);
@@ -5294,6 +5298,8 @@ test("adds Linux package updater to current bootstrap updater wiring", () => {
   assert.match(patched, /setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\}/);
   assert.match(patched, /getIsUpdateReady:\(\)=>s&&t/);
   assert.match(patched, /checkForUpdates:async\(\)=>\{if\(!await c\)return;n=`checking`/);
+  assert.match(patched, /Codex Desktop is up to date/);
+  assert.match(patched, /u\.status===`idle`\|\|u\.status===`installed`/);
   assert.match(patched, /installUpdatesIfAvailable:async\(\)=>\{if\(!await c\)\{a\(\);return\}i\(\);if\(!t\)\{a\(\);return\}/);
   assert.match(patched, /e\.stdout\?\.includes\(`Manual install required:`\)\?await codexLinuxShowUpdateMessage/);
   assert.match(patched, /refresh:async\(\)=>\{if\(await c\)\{try\{await codexLinuxRefreshUpdateState\(\)\}/);

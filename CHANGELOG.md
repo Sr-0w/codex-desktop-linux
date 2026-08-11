@@ -86,6 +86,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Help > Check for Updates now confirms when Codex Desktop is already up to
+  date, including the installed native package version when available.
 - Native module rebuilding now detects, compiles, stages, validates, and pins
   upstream `@parcel/watcher`, preventing the repository watcher from failing
   after Codex Desktop added the module to its Electron main process.

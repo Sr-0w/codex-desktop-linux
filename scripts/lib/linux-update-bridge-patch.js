@@ -32,6 +32,10 @@ function buildElectronResolverSource() {
   return "function codexLinuxGetElectronModule(){try{return require(`electron`)}catch{return null}}";
 }
 
+function buildUpToDateDetailSource() {
+  return "function codexLinuxUpToDateDetail(e){try{let t=String(e?.installed_version??``).trim();return t&&t!==`unknown`?`Installed package ${t} is the latest available version.`:`You have the latest available version.`}catch{return`You have the latest available version.`}}";
+}
+
 function buildShowUpdateMessageSource(childProcessVar) {
   return `function codexLinuxUpdateErrorDetail(e){try{let t=codexLinuxReadUpdateState()?.error_message,n=e?.stderr??e?.stdout??e?.message??e,r=String(t??n??\`Unknown update error\`).trim();return r||\`Unknown update error\`}catch{return\`Unknown update error\`}}async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{let e=String(codexLinuxMessage??\`Codex Desktop update\`),t=String(codexLinuxDetail??\`\`),n=String(process.env.XDG_CURRENT_DESKTOP??process.env.DESKTOP_SESSION??\`\`).toLowerCase();if(n.includes(\`kde\`)||n.includes(\`plasma\`)){let r=await new Promise(r=>{try{${childProcessVar}.execFile(\`kdialog\`,[\`--title\`,e,\`--msgbox\`,t],{windowsHide:!0},e=>r(e==null||e.code!==\`ENOENT\`&&e.code!==\`EACCES\`))}catch{r(!1)}});if(r)return}let r=codexLinuxGetElectronModule();if(!r)return;await r.dialog?.showMessageBox({type:\`info\`,buttons:[\`OK\`],defaultId:0,noLink:!0,message:e,detail:t})}catch{}}`;
 }
@@ -63,9 +67,10 @@ function buildQuitForUpdateSource(callInstallAfterQuit) {
 
 function buildBridgeSource({ childProcessVar, fsVar, pathVar }) {
   const showUpdateMessage = buildShowUpdateMessageSource(childProcessVar);
+  const upToDateDetail = buildUpToDateDetailSource();
   const installAfterQuit = buildInstallAfterQuitSource(childProcessVar);
   const quitForUpdate = buildQuitForUpdateSource(true);
-  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
+  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${upToDateDetail}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
 }
 
 function packageUpdateManagerCompatibilityMethods() {
@@ -111,6 +116,19 @@ function migrateLinuxUpdaterBridgeSource(source, childProcessVar) {
   ).replace(
     "async function codexLinuxRefreshUpdateState(){await codexLinuxRunUpdateManager([`status`,`--json`]);return codexLinuxReadUpdateState()}",
     "async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}",
+  );
+  if (
+    patchedSource.includes("function codexLinuxReadUpdateState(") &&
+    !patchedSource.includes("function codexLinuxUpToDateDetail(")
+  ) {
+    patchedSource = patchedSource.replace(
+      "function codexLinuxUpdateErrorDetail(",
+      `${buildUpToDateDetailSource()}function codexLinuxUpdateErrorDetail(`,
+    );
+  }
+  patchedSource = patchedSource.replace(
+    "await codexLinuxRunUpdateManager([`check-now`]),e()}catch(t){",
+    "await codexLinuxRunUpdateManager([`check-now`]);let n=e();!this.isUpdateReady&&n&&(n.status===`idle`||n.status===`installed`)&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(n))}catch(t){",
   );
   const probeSource =
     "async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([`--help`])}";
@@ -173,6 +191,12 @@ function migrateLinuxUpdaterBridgeSource(source, childProcessVar) {
     bootstrapNeedle,
     "checkForUpdates:async()=>{n=`checking`,a();try{",
     "checkForUpdates:async()=>{if(!await c)return;n=`checking`,a();try{",
+  );
+  patchedSource = replaceAfter(
+    patchedSource,
+    bootstrapNeedle,
+    "await codexLinuxRunUpdateManager([`check-now`]),i(),a()",
+    "await codexLinuxRunUpdateManager([`check-now`]);let u=i();a(),!t&&u&&(u.status===`idle`||u.status===`installed`)&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(u))",
   );
   patchedSource = replaceAfter(
     patchedSource,
