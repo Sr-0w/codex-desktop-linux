@@ -471,9 +471,12 @@ test_update_builder_preserves_enabled_linux_features_config() {
     local feature_config="$workspace/features.json"
     local staged_config="$root/opt/codex-desktop/update-builder/linux-features/features.json"
     local staged_local_manifest="$root/opt/codex-desktop/update-builder/linux-features/local/local-tool/feature.json"
+    local stale_local_manifest="$root/opt/codex-desktop/update-builder/linux-features/local/example-feature/feature.json"
     local source_info="$root/opt/codex-desktop/update-builder/.codex-linux/source-info.json"
 
     mkdir -p "$workspace"
+    mkdir -p "$(dirname "$stale_local_manifest")"
+    printf '%s\n' '{"id":"example-feature","title":"Stale Local Copy"}' > "$stale_local_manifest"
     make_fake_app "$app_dir"
     mkdir -p "$features_root/example-feature" "$features_root/local/local-tool"
     printf '%s\n' '# Linux Features' > "$features_root/README.md"
@@ -523,6 +526,7 @@ JSON
 
     assert_file_exists "$staged_config"
     assert_file_exists "$staged_local_manifest"
+    assert_file_not_exists "$stale_local_manifest"
     assert_contains "$staged_config" "example-feature"
     assert_contains "$staged_config" "local-tool"
     assert_contains "$staged_config" "tweaks"
@@ -3243,6 +3247,7 @@ test_native_module_rebuild_uses_local_electron_rebuild_toolchain() {
     local output_log="$workspace/output.log"
 
     mkdir -p "$app_dir/node_modules/better-sqlite3" "$app_dir/node_modules/node-pty" "$fake_bin"
+    printf '%s\n' '{"dependencies":{"@parcel/watcher":"2.5.6"}}' > "$app_dir/package.json"
     printf '%s\n' '{"version":"12.9.0"}' > "$app_dir/node_modules/better-sqlite3/package.json"
     printf '%s\n' '{"version":"1.1.0"}' > "$app_dir/node_modules/node-pty/package.json"
 
@@ -3263,8 +3268,10 @@ fs.appendFileSync(process.env.NATIVE_TOOLCHAIN_LOG, `electron-rebuild ${process.
 fs.appendFileSync(process.env.NATIVE_TOOLCHAIN_LOG, `electron-rebuild-env jobs=${process.env.npm_config_jobs || ""} makeflags=${process.env.MAKEFLAGS || ""}\n`);
 fs.mkdirSync("node_modules/better-sqlite3/build/Release", { recursive: true });
 fs.mkdirSync("node_modules/node-pty/build/Release", { recursive: true });
+fs.mkdirSync("node_modules/@parcel/watcher/build/Release", { recursive: true });
 fs.closeSync(fs.openSync("node_modules/better-sqlite3/build/Release/better_sqlite3.node", "w"));
 fs.closeSync(fs.openSync("node_modules/node-pty/build/Release/pty.node", "w"));
+fs.closeSync(fs.openSync("node_modules/@parcel/watcher/build/Release/watcher.node", "w"));
 REBUILD
         ;;
 esac
@@ -3301,6 +3308,13 @@ case "$args" in
     *" node-pty@1.1.0 "*)
         mkdir -p node_modules/node-pty
         printf '%s\n' '{"version":"1.1.0"}' > node_modules/node-pty/package.json
+        ;;
+esac
+
+case "$args" in
+    *" @parcel/watcher@2.5.6 "*)
+        mkdir -p node_modules/@parcel/watcher
+        printf '%s\n' '{"version":"2.5.6"}' > node_modules/@parcel/watcher/package.json
         ;;
 esac
 SCRIPT
@@ -3341,6 +3355,7 @@ SCRIPT
     assert_contains "$output_log" "Native modules built successfully"
     assert_file_exists "$app_dir/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
     assert_file_exists "$app_dir/node_modules/node-pty/build/Release/pty.node"
+    assert_file_exists "$app_dir/node_modules/@parcel/watcher/build/Release/watcher.node"
 }
 
 test_native_module_rebuild_accepts_prebuilt_source() {
@@ -3354,17 +3369,22 @@ test_native_module_rebuild_accepts_prebuilt_source() {
         "$app_dir/node_modules/better-sqlite3" \
         "$app_dir/node_modules/node-pty" \
         "$source_dir/better-sqlite3/build/Release" \
-        "$source_dir/node-pty/build/Release"
+        "$source_dir/node-pty/build/Release" \
+        "$source_dir/@parcel/watcher/build/Release"
+    printf '%s\n' '{"dependencies":{"@parcel/watcher":"2.5.6"}}' > "$app_dir/package.json"
     printf '%s\n' '{"version":"12.9.0"}' > "$app_dir/node_modules/better-sqlite3/package.json"
     printf '%s\n' '{"version":"1.1.0"}' > "$app_dir/node_modules/node-pty/package.json"
     printf '%s\n' stale > "$app_dir/node_modules/better-sqlite3/old.txt"
 
     printf '%s\n' '{"version":"12.9.0"}' > "$source_dir/better-sqlite3/package.json"
     printf '%s\n' '{"version":"1.1.0"}' > "$source_dir/node-pty/package.json"
+    printf '%s\n' '{"version":"2.5.6"}' > "$source_dir/@parcel/watcher/package.json"
     : > "$source_dir/better-sqlite3/build/Release/better_sqlite3.node"
     : > "$source_dir/better-sqlite3/build/Release/junk.o"
     : > "$source_dir/node-pty/build/Release/pty.node"
     : > "$source_dir/node-pty/build/Release/junk.o"
+    : > "$source_dir/@parcel/watcher/build/Release/watcher.node"
+    : > "$source_dir/@parcel/watcher/build/Release/junk.o"
 
     (
         WORK_DIR="$workspace/work"
@@ -3382,9 +3402,11 @@ test_native_module_rebuild_accepts_prebuilt_source() {
     assert_contains "$output_log" "Using prebuilt native modules from $source_dir"
     assert_file_exists "$app_dir/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
     assert_file_exists "$app_dir/node_modules/node-pty/build/Release/pty.node"
+    assert_file_exists "$app_dir/node_modules/@parcel/watcher/build/Release/watcher.node"
     [ ! -f "$app_dir/node_modules/better-sqlite3/old.txt" ] || fail "Expected stale better-sqlite3 module to be replaced"
     [ ! -f "$app_dir/node_modules/better-sqlite3/build/Release/junk.o" ] || fail "Expected better-sqlite3 build junk to be pruned"
     [ ! -f "$app_dir/node_modules/node-pty/build/Release/junk.o" ] || fail "Expected node-pty build junk to be pruned"
+    [ ! -f "$app_dir/node_modules/@parcel/watcher/build/Release/junk.o" ] || fail "Expected @parcel/watcher build junk to be pruned"
 }
 
 test_bundled_plugin_builders_accept_prebuilt_binaries() {
@@ -3435,6 +3457,7 @@ test_launcher_template_sanity() {
     assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" "patch_better_sqlite3_for_v8_external_pointer_api"
     assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" "@electron/rebuild@4.0.4"
     assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" "node-abi@^4.31.0"
+    assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" "@parcel/watcher"
     assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" 'node_modules/@electron/rebuild/lib/cli.js'
     assert_not_contains "$REPO_DIR/scripts/lib/native-modules.sh" "npx --yes @electron/rebuild"
     assert_contains "$REPO_DIR/scripts/lib/native-modules.sh" "prune_native_module_build_artifacts"

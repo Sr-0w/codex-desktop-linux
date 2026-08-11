@@ -99,6 +99,7 @@ stage_update_builder_linux_features_tree() {
     source_root="$(linux_features_root_path)"
     [ -d "$source_root" ] || error "Missing Linux features root: $source_root"
 
+    rm -rf "$target"
     mkdir -p "$target"
     cp -a "$source_root/." "$target/"
 }

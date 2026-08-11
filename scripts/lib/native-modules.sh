@@ -196,21 +196,27 @@ build_native_modules() {
     fi
 
     # Read versions from extracted app
-    local bs3_ver bs3_build_ver npty_ver
+    local bs3_ver bs3_build_ver npty_ver parcel_watcher_ver
     bs3_ver=$(node -p "require('$app_extracted/node_modules/better-sqlite3/package.json').version" 2>/dev/null || echo "")
     npty_ver=$(node -p "require('$app_extracted/node_modules/node-pty/package.json').version" 2>/dev/null || echo "")
+    parcel_watcher_ver=$(node -p "require('$app_extracted/package.json').dependencies?.['@parcel/watcher'] || ''" 2>/dev/null || echo "")
 
     [ -n "$bs3_ver" ] || error "Could not detect better-sqlite3 version"
     [ -n "$npty_ver" ] || error "Could not detect node-pty version"
 
-    info "Native modules: better-sqlite3@$bs3_ver, node-pty@$npty_ver"
+    info "Native modules: better-sqlite3@$bs3_ver, node-pty@$npty_ver${parcel_watcher_ver:+, @parcel/watcher@$parcel_watcher_ver}"
     bs3_build_ver="$(better_sqlite3_build_version "$bs3_ver")"
     if [ "$bs3_build_ver" != "$bs3_ver" ]; then
         warn "Using better-sqlite3@$bs3_build_ver for Electron v$ELECTRON_VERSION compatibility (DMG has $bs3_ver)"
     fi
 
     if [ -n "${CODEX_NATIVE_MODULES_SOURCE:-}" ]; then
-        install_native_modules_from_source "$app_extracted" "$CODEX_NATIVE_MODULES_SOURCE" "$bs3_build_ver" "$npty_ver"
+        install_native_modules_from_source \
+            "$app_extracted" \
+            "$CODEX_NATIVE_MODULES_SOURCE" \
+            "$bs3_build_ver" \
+            "$npty_ver" \
+            "$parcel_watcher_ver"
         return 0
     fi
 
@@ -228,7 +234,14 @@ build_native_modules() {
         "$ELECTRON_REBUILD_NODE_ABI_PACKAGE" \
         --save-dev \
         --ignore-scripts >&2
-    npm install "better-sqlite3@$bs3_build_ver" "node-pty@$npty_ver" --ignore-scripts >&2
+    local -a native_runtime_modules=(
+        "better-sqlite3@$bs3_build_ver"
+        "node-pty@$npty_ver"
+    )
+    if [ -n "$parcel_watcher_ver" ]; then
+        native_runtime_modules+=("@parcel/watcher@$parcel_watcher_ver")
+    fi
+    npm install "${native_runtime_modules[@]}" --ignore-scripts >&2
     patch_better_sqlite3_for_v8_external_pointer_api "$build_dir/node_modules/better-sqlite3"
 
     info "Compiling for Electron v$ELECTRON_VERSION (this takes ~1 min)..."
@@ -250,6 +263,12 @@ build_native_modules() {
     cp -r "$build_dir/node_modules/node-pty" "$app_extracted/node_modules/"
     prune_native_module_build_artifacts "$app_extracted/node_modules/better-sqlite3"
     prune_native_module_build_artifacts "$app_extracted/node_modules/node-pty"
+    if [ -n "$parcel_watcher_ver" ]; then
+        rm -rf "$app_extracted/node_modules/@parcel/watcher"
+        mkdir -p "$app_extracted/node_modules/@parcel"
+        cp -r "$build_dir/node_modules/@parcel/watcher" "$app_extracted/node_modules/@parcel/"
+        prune_native_module_build_artifacts "$app_extracted/node_modules/@parcel/watcher"
+    fi
 }
 
 install_native_modules_from_source() {
@@ -257,10 +276,13 @@ install_native_modules_from_source() {
     local source_dir="$2"
     local expected_better_sqlite3_version="$3"
     local expected_node_pty_version="$4"
+    local expected_parcel_watcher_version="$5"
     local source_better_sqlite3="$source_dir/better-sqlite3"
     local source_node_pty="$source_dir/node-pty"
+    local source_parcel_watcher="$source_dir/@parcel/watcher"
     local actual_better_sqlite3_version
     local actual_node_pty_version
+    local actual_parcel_watcher_version
 
     [ -d "$source_better_sqlite3" ] || error "Prebuilt better-sqlite3 source not found at $source_better_sqlite3"
     [ -d "$source_node_pty" ] || error "Prebuilt node-pty source not found at $source_node_pty"
@@ -272,6 +294,12 @@ install_native_modules_from_source() {
         error "Prebuilt better-sqlite3 version mismatch: expected $expected_better_sqlite3_version, got ${actual_better_sqlite3_version:-unknown}"
     [ "$actual_node_pty_version" = "$expected_node_pty_version" ] || \
         error "Prebuilt node-pty version mismatch: expected $expected_node_pty_version, got ${actual_node_pty_version:-unknown}"
+    if [ -n "$expected_parcel_watcher_version" ]; then
+        [ -d "$source_parcel_watcher" ] || error "Prebuilt @parcel/watcher source not found at $source_parcel_watcher"
+        actual_parcel_watcher_version=$(node -p "require('$source_parcel_watcher/package.json').version" 2>/dev/null || echo "")
+        [ "$actual_parcel_watcher_version" = "$expected_parcel_watcher_version" ] || \
+            error "Prebuilt @parcel/watcher version mismatch: expected $expected_parcel_watcher_version, got ${actual_parcel_watcher_version:-unknown}"
+    fi
 
     info "Using prebuilt native modules from $source_dir"
     rm -rf "$app_extracted/node_modules/better-sqlite3"
@@ -281,6 +309,13 @@ install_native_modules_from_source() {
     chmod -R u+w "$app_extracted/node_modules/better-sqlite3" "$app_extracted/node_modules/node-pty"
     prune_native_module_build_artifacts "$app_extracted/node_modules/better-sqlite3"
     prune_native_module_build_artifacts "$app_extracted/node_modules/node-pty"
+    if [ -n "$expected_parcel_watcher_version" ]; then
+        rm -rf "$app_extracted/node_modules/@parcel/watcher"
+        mkdir -p "$app_extracted/node_modules/@parcel"
+        cp -r "$source_parcel_watcher" "$app_extracted/node_modules/@parcel/"
+        chmod -R u+w "$app_extracted/node_modules/@parcel/watcher"
+        prune_native_module_build_artifacts "$app_extracted/node_modules/@parcel/watcher"
+    fi
 }
 
 # ---- Download Linux Electron ----

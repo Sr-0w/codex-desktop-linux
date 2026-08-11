@@ -86,6 +86,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Native module rebuilding now detects, compiles, stages, validates, and pins
+  upstream `@parcel/watcher`, preventing the repository watcher from failing
+  after Codex Desktop added the module to its Electron main process.
+- Local update rebuilds now discard stale private feature copies when the same
+  feature has been promoted into the wrapper, and package staging replaces the
+  Linux feature tree atomically. This prevents duplicate feature ids from
+  breaking future native package updates.
 - The Chromium/Chrome side panel now speaks the current native-host protocol v2
   on Linux, starts and supervises its own Codex app-server behind an
   origin-gated loopback WebSocket proxy, and receives the managed Node,

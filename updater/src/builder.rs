@@ -268,6 +268,48 @@ fn copy_builder_bundle(source_root: &Path, destination_root: &Path) -> Result<()
         )?;
     }
 
+    remove_promoted_local_feature_duplicates(destination_root)?;
+
+    Ok(())
+}
+
+fn remove_promoted_local_feature_duplicates(bundle_root: &Path) -> Result<()> {
+    let features_root = bundle_root.join("linux-features");
+    let local_root = features_root.join("local");
+    if !local_root.is_dir() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&local_root)
+        .with_context(|| format!("Failed to read {}", local_root.display()))?
+    {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+
+        let local_feature = entry.path();
+        if !local_feature.join("feature.json").is_file() {
+            continue;
+        }
+
+        let promoted_feature = features_root.join(entry.file_name());
+        if !promoted_feature.join("feature.json").is_file() {
+            continue;
+        }
+
+        fs::remove_dir_all(&local_feature).with_context(|| {
+            format!(
+                "Failed to remove promoted local Linux feature {}",
+                local_feature.display()
+            )
+        })?;
+        info!(
+            feature = %entry.file_name().to_string_lossy(),
+            "removed stale local Linux feature promoted into the wrapper"
+        );
+    }
+
     Ok(())
 }
 
@@ -931,6 +973,29 @@ fi
         assert!(destination_root.join("assets/codex-linux.png").exists());
         assert!(!destination_root.join("scripts/build-rpm.sh").exists());
         assert!(!destination_root.join("scripts/build-pacman.sh").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn removes_stale_local_feature_after_repository_promotion() -> Result<()> {
+        let temp = tempdir()?;
+        let features_root = temp.path().join("linux-features");
+        let promoted = features_root.join("kde-native-corners");
+        let stale_local = features_root.join("local/kde-native-corners");
+        let private_local = features_root.join("local/private-tool");
+
+        fs::create_dir_all(&promoted)?;
+        fs::create_dir_all(&stale_local)?;
+        fs::create_dir_all(&private_local)?;
+        fs::write(promoted.join("feature.json"), b"{}")?;
+        fs::write(stale_local.join("feature.json"), b"{}")?;
+        fs::write(private_local.join("feature.json"), b"{}")?;
+
+        remove_promoted_local_feature_duplicates(temp.path())?;
+
+        assert!(!stale_local.exists());
+        assert!(promoted.join("feature.json").exists());
+        assert!(private_local.join("feature.json").exists());
         Ok(())
     }
 

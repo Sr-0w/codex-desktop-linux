@@ -50,13 +50,13 @@ sha256sum -c codex-desktop-linux-postmarketos-aarch64.apk.sha256
 doas apk add --allow-untrusted --upgrade ./codex-desktop-linux-postmarketos-aarch64.apk
 ```
 
-Native packages install the app as `codex-desktop` and include
-`codex-update-manager`. The Gentoo release installs
+Native packages include `codex-update-manager` and install the app as
+`codex-desktop`. The Gentoo release installs
 `app-editors/codex-desktop-bin` from a local Portage overlay. The postmarketOS
 package uses native Wayland integration, Wayland text input, and a private
 glibc/Mesa runtime with the Raspberry Pi 4 V3D driver; it does not replace the
-system musl C library. AppImage builds are portable, check GitHub Releases on
-launch, and can replace themselves after confirmation on compatible glibc
+system musl C library. AppImage builds are portable, check GitHub Releases on launch,
+and can replace themselves after confirmation on compatible glibc
 distributions when a newer release is published.
 
 ARM64 packages currently include the app, CLI integration, native updater,

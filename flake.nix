@@ -81,10 +81,10 @@
 
         codexDmg = pkgs.fetchurl {
           url = "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg";
-          hash = "sha256-M61HAaH3I3MzE68F6ygWOStos2froJIdvgeNLVeXGbU=";
+          hash = "sha256-kfxLgJwnMLOeV9mtvGswxmnvB0yQDKKMY6HgtvpBJow=";
         };
 
-        codexVersion = "26.730.61639";
+        codexVersion = "26.803.81509";
         electronVersion = "42.3.0";
         electronPlatform =
           {
@@ -222,8 +222,11 @@
           installPhase = ''
             runHook preInstall
             mkdir -p "$out"
+            mkdir -p "$out/@parcel"
+            cp -R node_modules/@parcel/watcher "$out/@parcel/watcher"
             cp -R node_modules/better-sqlite3 "$out/better-sqlite3"
             cp -R node_modules/node-pty "$out/node-pty"
+            find "$out/@parcel/watcher/build" -type f ! -name "*.node" -delete 2>/dev/null || true
             find "$out/better-sqlite3/build" -type f ! -name "*.node" -delete 2>/dev/null || true
             find "$out/node-pty/build" -type f ! -name "*.node" -delete 2>/dev/null || true
             find "$out" -type d -empty -delete 2>/dev/null || true

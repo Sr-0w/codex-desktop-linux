@@ -231,12 +231,14 @@ dmg_electron_version="$(detect_dmg_electron_version "$APP_DIR" "$ASAR_EXTRACT_DI
 dmg_codex_version="$(json_file_field "$ASAR_EXTRACT_DIR/package.json" "value.version")"
 dmg_better_sqlite3_version="$(json_file_field "$ASAR_EXTRACT_DIR/node_modules/better-sqlite3/package.json" "value.version")"
 dmg_node_pty_version="$(json_file_field "$ASAR_EXTRACT_DIR/node_modules/node-pty/package.json" "value.version")"
+dmg_parcel_watcher_version="$(json_file_field "$ASAR_EXTRACT_DIR/package.json" "value.dependencies['@parcel/watcher']")"
 
 nix_codex_version="$(read_nix_string codexVersion)"
 nix_electron_version="$(read_nix_string electronVersion)"
 native_electron_version="$(node -p "require('$REPO_DIR/nix/native-modules/package.json').dependencies.electron")"
 native_better_sqlite3_version="$(node -p "require('$REPO_DIR/nix/native-modules/package.json').dependencies['better-sqlite3']")"
 native_node_pty_version="$(node -p "require('$REPO_DIR/nix/native-modules/package.json').dependencies['node-pty']")"
+native_parcel_watcher_version="$(node -p "require('$REPO_DIR/nix/native-modules/package.json').dependencies['@parcel/watcher']")"
 
 if [ "$WRITE_PINS" = "1" ]; then
     if [ -n "$APPCAST_URL" ]; then
@@ -255,6 +257,7 @@ if [ "$WRITE_PINS" = "1" ]; then
     write_json_dep "$NATIVE_MODULES_PKG" electron "$dmg_electron_version"
     write_json_dep "$NATIVE_MODULES_PKG" better-sqlite3 "$dmg_better_sqlite3_version"
     write_json_dep "$NATIVE_MODULES_PKG" node-pty "$dmg_node_pty_version"
+    write_json_dep "$NATIVE_MODULES_PKG" @parcel/watcher "$dmg_parcel_watcher_version"
 
     # Re-read so the assertions below confirm the writes landed.
     nix_codex_version="$(read_nix_string codexVersion)"
@@ -262,6 +265,7 @@ if [ "$WRITE_PINS" = "1" ]; then
     native_electron_version="$(node -p "require('$NATIVE_MODULES_PKG').dependencies.electron")"
     native_better_sqlite3_version="$(node -p "require('$NATIVE_MODULES_PKG').dependencies['better-sqlite3']")"
     native_node_pty_version="$(node -p "require('$NATIVE_MODULES_PKG').dependencies['node-pty']")"
+    native_parcel_watcher_version="$(node -p "require('$NATIVE_MODULES_PKG').dependencies['@parcel/watcher']")"
 fi
 
 assert_equal "Codex app version pin" "$dmg_codex_version" "$nix_codex_version"
@@ -269,6 +273,7 @@ assert_equal "Electron version pin" "$dmg_electron_version" "$nix_electron_versi
 assert_equal "native-modules Electron pin" "$nix_electron_version" "$native_electron_version"
 assert_equal "native-modules better-sqlite3 pin" "$dmg_better_sqlite3_version" "$native_better_sqlite3_version"
 assert_equal "native-modules node-pty pin" "$dmg_node_pty_version" "$native_node_pty_version"
+assert_equal "native-modules @parcel/watcher pin" "$dmg_parcel_watcher_version" "$native_parcel_watcher_version"
 
 flake_node_repl_url="$(read_nix_fetchurl_field browserUseNodeReplRuntime url)"
 flake_node_repl_sri="$(read_nix_fetchurl_field browserUseNodeReplRuntime hash)"
