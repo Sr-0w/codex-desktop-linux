@@ -865,13 +865,22 @@ async fn run_check_cycle_from_disk(
     paths: &RuntimePaths,
 ) -> Result<()> {
     reload_state_from_disk(config, state, paths)?;
-    run_check_cycle(config, state, paths).await
+    run_check_cycle_with_retry_policy(config, state, paths, false).await
 }
 
 async fn run_check_cycle(
     config: &RuntimeConfig,
     state: &mut PersistedState,
     paths: &RuntimePaths,
+) -> Result<()> {
+    run_check_cycle_with_retry_policy(config, state, paths, true).await
+}
+
+async fn run_check_cycle_with_retry_policy(
+    config: &RuntimeConfig,
+    state: &mut PersistedState,
+    paths: &RuntimePaths,
+    retry_failed_update: bool,
 ) -> Result<()> {
     // Keep wrapper state fresh even while a DMG package is pending; otherwise
     // `status --json` could keep advertising stale wrapper candidates.
@@ -891,7 +900,9 @@ async fn run_check_cycle(
         );
     }
 
-    let retrying_failed_update = state.status == UpdateStatus::Failed;
+    let failed_before_check = state.status == UpdateStatus::Failed;
+    let previous_failure = state.error_message.clone();
+    let retrying_failed_update = failed_before_check && retry_failed_update;
 
     if install::PackageKind::detect() == install::PackageKind::Apk {
         return run_prebuilt_apk_check_cycle(config, state, paths, retrying_failed_update).await;
@@ -919,8 +930,15 @@ async fn run_check_cycle(
             && state.dmg_sha256.is_some()
             && !retrying_failed_update
         {
-            set_status(state, paths, UpdateStatus::Idle)?;
-            info!("upstream fingerprint unchanged; skipping download");
+            if failed_before_check {
+                state.status = UpdateStatus::Failed;
+                state.error_message = previous_failure.clone();
+                persist_state(paths, state)?;
+                info!("failed upstream fingerprint unchanged; waiting for a manual retry or a new DMG");
+            } else {
+                set_status(state, paths, UpdateStatus::Idle)?;
+                info!("upstream fingerprint unchanged; skipping download");
+            }
             return Ok(());
         }
 
@@ -964,10 +982,19 @@ async fn run_check_cycle(
         if state.dmg_sha256.as_deref() == Some(downloaded.sha256.as_str())
             && !retrying_failed_update
         {
-            state.status = UpdateStatus::Idle;
+            state.status = if failed_before_check {
+                UpdateStatus::Failed
+            } else {
+                UpdateStatus::Idle
+            };
+            state.error_message = if failed_before_check {
+                previous_failure.clone()
+            } else {
+                None
+            };
             state.artifact_paths.dmg_path = Some(downloaded.path);
             persist_state(paths, state)?;
-            info!("downloaded DMG hash matches current cached DMG; no update detected");
+            info!("downloaded DMG hash matches current cached DMG; skipping automatic rebuild retry");
             return Ok(());
         }
 
@@ -2375,6 +2402,97 @@ mod tests {
         assert_eq!(stale_daemon_state.status, UpdateStatus::WaitingForAppExit);
         assert!(stale_daemon_state.waiting_for_app_exit_auto_install);
         assert_eq!(stale_daemon_state.last_check_at, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn daemon_does_not_retry_the_same_failed_dmg() -> Result<()> {
+        let server = MockServer::start().await;
+        Mock::given(method("HEAD"))
+            .and(path("/Codex.dmg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("ETag", "\"failed-dmg\"")
+                    .insert_header("Content-Length", "42"),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/Codex.dmg"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(b"same failed dmg".to_vec()))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        let temp = tempfile::tempdir()?;
+        let paths = test_paths(temp.path());
+        paths.ensure_dirs()?;
+        let mut config = test_config(temp.path());
+        config.dmg_url = format!("{}/Codex.dmg", server.uri());
+
+        let mut on_disk = PersistedState::new(true);
+        on_disk.status = UpdateStatus::Failed;
+        on_disk.remote_headers_fingerprint =
+            Some("etag=\"failed-dmg\"|last_modified=|content_length=42".to_string());
+        on_disk.dmg_sha256 = Some("deadbeef".repeat(8));
+        on_disk.error_message = Some("patch drift requires maintainer work".to_string());
+        on_disk.save(&paths.state_file)?;
+
+        let mut daemon_state = PersistedState::new(true);
+        run_check_cycle_from_disk(&config, &mut daemon_state, &paths).await?;
+
+        assert_eq!(daemon_state.status, UpdateStatus::Failed);
+        assert_eq!(
+            daemon_state.error_message.as_deref(),
+            Some("patch drift requires maintainer work")
+        );
+        assert!(daemon_state.last_successful_check_at.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn manual_check_retries_the_same_failed_dmg() -> Result<()> {
+        let server = MockServer::start().await;
+        let body = b"same failed dmg";
+        Mock::given(method("HEAD"))
+            .and(path("/Codex.dmg"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("ETag", "\"failed-dmg\"")
+                    .insert_header("Content-Length", body.len().to_string()),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/Codex.dmg"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.to_vec()))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let temp = tempfile::tempdir()?;
+        let paths = test_paths(temp.path());
+        paths.ensure_dirs()?;
+        let mut config = test_config(temp.path());
+        config.dmg_url = format!("{}/Codex.dmg", server.uri());
+
+        let mut state = PersistedState::new(true);
+        state.status = UpdateStatus::Failed;
+        state.remote_headers_fingerprint = Some(format!(
+            "etag=\"failed-dmg\"|last_modified=|content_length={}",
+            body.len()
+        ));
+        let previous_hash = "deadbeef".repeat(8);
+        state.dmg_sha256 = Some(previous_hash.clone());
+        state.error_message = Some("patch drift requires maintainer work".to_string());
+
+        let result = run_check_cycle(&config, &mut state, &paths).await;
+
+        assert!(result.is_err());
+        assert_eq!(state.status, UpdateStatus::Failed);
+        assert_ne!(state.dmg_sha256.as_deref(), Some(previous_hash.as_str()));
         Ok(())
     }
 

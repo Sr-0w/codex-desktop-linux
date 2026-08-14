@@ -2724,6 +2724,10 @@ test_upstream_build_app_workflow_tracks_dmg_metadata() {
     assert_contains "$workflow" 'make build-app DMG=/tmp/codex-upstream-ci/Codex.dmg'
     assert_contains "$workflow" 'DMG Last-Modified'
     assert_contains "$workflow" 'DMG SHA-256'
+    assert_contains "$workflow" 'issues: write'
+    assert_contains "$workflow" 'upstream-dmg-drift'
+    assert_contains "$workflow" 'Open or update upstream compatibility alert'
+    assert_contains "$workflow" 'Resolve upstream compatibility alerts'
 }
 
 test_release_artifacts_workflow_uses_short_asset_names() {

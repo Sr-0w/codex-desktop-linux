@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- The scheduled upstream-DMG compatibility workflow now opens one deduplicated
+  `upstream-dmg-drift` GitHub issue when a new official DMG fails the Linux
+  build or required-patch validation, includes the tested fingerprint and run
+  link, and closes the alert automatically after a successful validation.
 - A native Electron progress window for manual **Help > Check for Updates**
   checks on Linux. It follows the updater's persisted state through upstream
   detection, DMG download, workspace preparation, app patching, native package
@@ -92,6 +96,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- Automatic updater checks no longer rebuild the same failed DMG every six
+  hours. A failed fingerprint remains failed until the upstream payload changes
+  or the user explicitly requests **Check for Updates**, which still performs a
+  forced retry after wrapper fixes have been installed.
 - Fixed system tray startup with Electron 42 by omitting the Windows-only tray
   GUID constructor argument on Linux.
 - Kept the Help update item visible on Linux after upstream added a separate

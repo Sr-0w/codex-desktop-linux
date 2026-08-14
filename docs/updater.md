@@ -34,6 +34,23 @@ The progress window can be hidden without cancelling the check or local package
 build. Automatic daemon and launch-time checks remain background-only and use
 desktop notifications for actionable results.
 
+## Upstream Compatibility Failures
+
+The local updater treats required patch failures as compatibility failures; it
+does not weaken or bypass them to accept an arbitrary upstream DMG. After one
+failed automatic rebuild, background checks retain the failure and only perform
+the lightweight metadata probe while the DMG fingerprint remains unchanged.
+They retry automatically when the fingerprint changes. **Help > Check for
+Updates** remains an explicit forced retry, which is useful after installing a
+new wrapper package containing adapted patches.
+
+The daily **Upstream Build App** GitHub workflow independently downloads and
+builds the current official DMG. A failed build or required-patch validation
+opens or updates one `upstream-dmg-drift` issue with the workflow run and DMG
+fingerprint. The issue is closed automatically when a later run succeeds. This
+keeps upstream drift visible without turning critical compatibility checks into
+fail-open patches.
+
 The postmarketOS package is intentionally different: a musl host does not
 rebuild the glibc Electron payload locally. Its updater polls the checksum for
 `codex-desktop-linux-postmarketos-aarch64.apk` on the latest stable GitHub
