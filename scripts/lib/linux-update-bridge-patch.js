@@ -36,6 +36,332 @@ function buildUpToDateDetailSource() {
   return "function codexLinuxUpToDateDetail(e){try{let t=String(e?.installed_version??``).trim();return t&&t!==`unknown`?`Installed package ${t} is the latest available version.`:`You have the latest available version.`}catch{return`You have the latest available version.`}}";
 }
 
+function buildUpdateProgressHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Codex Desktop Update</title>
+<style>
+:root{color-scheme:light dark;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f6f7f9;color:#202124}
+*{box-sizing:border-box}
+body{margin:0;min-width:420px;min-height:330px;background:#f6f7f9;color:#202124}
+main{display:flex;min-height:100vh;flex-direction:column;padding:28px 30px 24px}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+h1{margin:0;font-size:20px;font-weight:650;line-height:1.25;letter-spacing:0}
+.subtitle{margin:6px 0 0;color:#62666d;font-size:13px;line-height:1.45}
+.percent{min-width:72px;text-align:right;font-size:28px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:0}
+.progress{height:8px;margin:24px 0 22px;overflow:hidden;border-radius:4px;background:#dfe2e7}
+.progress>div{height:100%;width:0;border-radius:4px;background:#1769d2;transition:width .35s ease}
+.status{display:grid;grid-template-columns:18px minmax(0,1fr);gap:12px;align-items:start}
+.dot{width:10px;height:10px;margin-top:5px;border-radius:50%;background:#1769d2;box-shadow:0 0 0 4px rgba(23,105,210,.12)}
+.dot.done{background:#18864b;box-shadow:0 0 0 4px rgba(24,134,75,.12)}
+.dot.failed{background:#c7362f;box-shadow:0 0 0 4px rgba(199,54,47,.12)}
+.step{font-size:15px;font-weight:600;line-height:1.4}
+.state{margin-top:3px;color:#73777e;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:11px;text-transform:uppercase}
+.detail{min-height:44px;margin:18px 0 0;padding:14px 16px;border:1px solid #dfe2e7;border-radius:6px;background:#fff;color:#484c52;font-size:13px;line-height:1.45;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;color:#73777e;font-size:12px}
+.meta strong{color:#484c52;font-weight:600}
+footer{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:auto;padding-top:24px}
+.elapsed{color:#73777e;font-size:12px;font-variant-numeric:tabular-nums}
+button{min-width:84px;border:1px solid #b9bec6;border-radius:6px;padding:7px 16px;background:#fff;color:#202124;font:600 13px/1.3 inherit;cursor:pointer}
+button:hover{background:#eef1f5}
+button:focus-visible{outline:2px solid #1769d2;outline-offset:2px}
+@media (prefers-color-scheme:dark){:root,body{background:#1d1f22;color:#f2f3f4}.subtitle,.state,.meta,.elapsed{color:#aeb3ba}.progress{background:#3a3d42}.detail{border-color:#3d4147;background:#26292d;color:#d7d9dc}.meta strong{color:#e4e6e8}button{border-color:#555a62;background:#2c2f34;color:#f2f3f4}button:hover{background:#373b41}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>Codex Desktop Update</h1><p class="subtitle">Checking and preparing the native Linux package</p></div><div class="percent" id="percent">0%</div></header>
+<div class="progress" id="progress" role="progressbar" aria-label="Estimated update progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="bar"></div></div>
+<section class="status"><span class="dot" id="dot"></span><div><div class="step" id="step">Starting update check</div><div class="state" id="state">STARTING</div></div></section>
+<div class="detail" id="detail">Connecting to the update manager...</div>
+<div class="meta" id="meta"><span>Installed: <strong id="installed">Unknown</strong></span><span id="candidate-wrap" hidden>Candidate: <strong id="candidate"></strong></span></div>
+<footer><span class="elapsed" id="elapsed">Elapsed 0:00</span><button id="close" type="button">Hide</button></footer>
+</main>
+<script>
+const byId=id=>document.getElementById(id);
+const percent=byId("percent"),progress=byId("progress"),bar=byId("bar"),dot=byId("dot"),step=byId("step"),state=byId("state"),detail=byId("detail"),installed=byId("installed"),candidate=byId("candidate"),candidateWrap=byId("candidate-wrap"),elapsed=byId("elapsed"),closeButton=byId("close");
+closeButton.addEventListener("click",()=>window.close());
+window.codexUpdateProgress=value=>{const p=Math.max(0,Math.min(100,Number(value.percent)||0));percent.textContent=p+"%";progress.setAttribute("aria-valuenow",String(p));bar.style.width=p+"%";step.textContent=value.step||"Updating Codex Desktop";state.textContent=String(value.status||"unknown").replaceAll("_"," ");detail.textContent=value.detail||"The update manager is working.";installed.textContent=value.installedVersion||"Unknown";candidate.textContent=value.candidateVersion||"";candidateWrap.hidden=!value.candidateVersion;elapsed.textContent="Elapsed "+Math.floor((value.elapsedSeconds||0)/60)+":"+String((value.elapsedSeconds||0)%60).padStart(2,"0");dot.className="dot"+(value.failed?" failed":value.terminal?" done":"");closeButton.textContent=value.terminal?"Close":"Hide"};
+</script>
+</body>
+</html>`;
+}
+
+function buildUpdateProgressSource() {
+  const html = JSON.stringify(buildUpdateProgressHtml());
+  const runtimeSource = function codexLinuxUpdateProgressRuntime() {
+    let codexLinuxUpdateProgressWindow = null;
+    let codexLinuxUpdateProgressTimer = null;
+    let codexLinuxUpdateProgressStartedAt = 0;
+    let codexLinuxUpdateProgressCommandRunning = false;
+    let codexLinuxUpdateProgressCommandFinished = false;
+    let codexLinuxUpdateProgressError = null;
+    const codexLinuxUpdateProgressHtml = "__CODEX_LINUX_UPDATE_PROGRESS_HTML__";
+
+    function codexLinuxUpdateProgressActive(status) {
+      return [
+        "checking_upstream",
+        "update_detected",
+        "downloading_dmg",
+        "preparing_workspace",
+        "patching_app",
+        "building_package",
+        "installing",
+      ].includes(status);
+    }
+
+    function codexLinuxUpdateProgressSnapshot(state) {
+      let status =
+        state?.status ?? (codexLinuxUpdateProgressCommandRunning ? "starting" : "idle");
+      const stages = {
+        starting: [2, "Starting update check", "Connecting to the update manager..."],
+        checking_upstream: [
+          8,
+          "Checking upstream",
+          "Comparing the installed build with the latest upstream DMG.",
+        ],
+        downloading_dmg: [
+          20,
+          "Downloading upstream DMG",
+          "Downloading and verifying the official Codex Desktop image.",
+        ],
+        update_detected: [
+          32,
+          "Update detected",
+          "A newer upstream build was found. Preparing the local rebuild.",
+        ],
+        preparing_workspace: [
+          40,
+          "Preparing build workspace",
+          "Copying the packaged Linux builder and preparing a clean workspace.",
+        ],
+        patching_app: [
+          58,
+          "Building the Linux application",
+          "Extracting the DMG, applying Linux compatibility patches, and rebuilding native modules.",
+        ],
+        building_package: [
+          84,
+          "Building the native package",
+          "Packaging the rebuilt application for this Linux distribution.",
+        ],
+        ready_to_install: [
+          100,
+          "Update ready to install",
+          "The native Linux package was built successfully and is ready to install.",
+        ],
+        waiting_for_app_exit: [
+          100,
+          "Update ready",
+          "The package is ready and will be installed after Codex Desktop closes.",
+        ],
+        installing: [
+          96,
+          "Installing update",
+          "Installing the rebuilt native package with system authentication.",
+        ],
+        installed: [
+          100,
+          "Update installed",
+          "The latest Codex Desktop package is installed.",
+        ],
+        failed: [
+          100,
+          "Update failed",
+          String(
+            state?.error_message ??
+              codexLinuxUpdateProgressError ??
+              "The local Linux package could not be prepared.",
+          ),
+        ],
+        idle: [100, "Codex Desktop is up to date", codexLinuxUpToDateDetail(state)],
+      };
+      let stage =
+        stages[status] ??
+        [
+          codexLinuxUpdateProgressCommandRunning ? 5 : 100,
+          "Updating Codex Desktop",
+          "The update manager is working.",
+        ];
+
+      if (
+        !codexLinuxUpdateProgressCommandFinished &&
+        codexLinuxUpdateProgressCommandRunning &&
+        !codexLinuxUpdateProgressActive(status)
+      ) {
+        status = "starting";
+        stage = stages.starting;
+      }
+
+      const failed = status === "failed" || codexLinuxUpdateProgressError != null;
+      const terminal =
+        !codexLinuxUpdateProgressCommandRunning && !codexLinuxUpdateProgressActive(status);
+
+      return {
+        status: failed ? "failed" : status,
+        step: failed ? "Update failed" : stage[1],
+        detail: failed
+          ? String(
+              state?.error_message ??
+                codexLinuxUpdateProgressError ??
+                stage[2],
+            )
+          : stage[2],
+        percent: stage[0],
+        terminal,
+        failed,
+        candidateVersion: state?.candidate_version ?? null,
+        installedVersion: state?.installed_version ?? null,
+        elapsedSeconds: Math.max(
+          0,
+          Math.floor((Date.now() - codexLinuxUpdateProgressStartedAt) / 1000),
+        ),
+      };
+    }
+
+    function codexLinuxHasUpdateProgressWindow() {
+      return (
+        codexLinuxUpdateProgressWindow != null &&
+        !codexLinuxUpdateProgressWindow.isDestroyed()
+      );
+    }
+
+    function codexLinuxRenderUpdateProgress() {
+      if (!codexLinuxHasUpdateProgressWindow()) {
+        return;
+      }
+      const snapshot = codexLinuxUpdateProgressSnapshot(codexLinuxReadUpdateState());
+      const script = `window.codexUpdateProgress?.(${JSON.stringify(snapshot)})`;
+      codexLinuxUpdateProgressWindow.webContents
+        .executeJavaScript(script, true)
+        .catch(() => {});
+    }
+
+    function codexLinuxStopUpdateProgressMonitor() {
+      if (codexLinuxUpdateProgressTimer != null) {
+        clearInterval(codexLinuxUpdateProgressTimer);
+        codexLinuxUpdateProgressTimer = null;
+      }
+    }
+
+    function codexLinuxOpenUpdateProgress() {
+      try {
+        if (codexLinuxHasUpdateProgressWindow()) {
+          codexLinuxUpdateProgressWindow.show();
+          codexLinuxUpdateProgressWindow.focus();
+          return codexLinuxUpdateProgressWindow;
+        }
+
+        const electron = codexLinuxGetElectronModule();
+        if (!electron?.BrowserWindow) {
+          return null;
+        }
+
+        const options = {
+          width: 520,
+          height: 390,
+          minWidth: 460,
+          minHeight: 340,
+          show: false,
+          resizable: true,
+          title: "Codex Desktop Update",
+          backgroundColor: electron.nativeTheme?.shouldUseDarkColors
+            ? "#1d1f22"
+            : "#f6f7f9",
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            sandbox: true,
+          },
+        };
+        const parent = electron.BrowserWindow.getFocusedWindow?.();
+        if (parent != null && !parent.isDestroyed()) {
+          options.parent = parent;
+        }
+
+        codexLinuxUpdateProgressWindow = new electron.BrowserWindow(options);
+        codexLinuxUpdateProgressWindow.setMenuBarVisibility?.(false);
+        codexLinuxUpdateProgressWindow.on("closed", () => {
+          codexLinuxUpdateProgressWindow = null;
+          codexLinuxStopUpdateProgressMonitor();
+        });
+        codexLinuxUpdateProgressWindow
+          .loadURL(
+            `data:text/html;charset=utf-8,${encodeURIComponent(
+              codexLinuxUpdateProgressHtml,
+            )}`,
+          )
+          .then(() => {
+            codexLinuxRenderUpdateProgress();
+            codexLinuxUpdateProgressWindow?.show();
+          })
+          .catch(() => {});
+        return codexLinuxUpdateProgressWindow;
+      } catch {
+        return null;
+      }
+    }
+
+    function codexLinuxStartUpdateProgress() {
+      codexLinuxUpdateProgressStartedAt = Date.now();
+      codexLinuxUpdateProgressCommandRunning = true;
+      codexLinuxUpdateProgressCommandFinished = false;
+      codexLinuxUpdateProgressError = null;
+      codexLinuxOpenUpdateProgress();
+      codexLinuxStopUpdateProgressMonitor();
+      codexLinuxUpdateProgressTimer = setInterval(() => {
+        const state = codexLinuxReadUpdateState();
+        codexLinuxRenderUpdateProgress();
+        if (
+          !codexLinuxUpdateProgressCommandRunning &&
+          !codexLinuxUpdateProgressActive(state?.status)
+        ) {
+          codexLinuxStopUpdateProgressMonitor();
+        }
+      }, 500);
+      codexLinuxUpdateProgressTimer.unref?.();
+      codexLinuxRenderUpdateProgress();
+    }
+
+    function codexLinuxFinishUpdateProgress(error) {
+      codexLinuxUpdateProgressCommandRunning = false;
+      codexLinuxUpdateProgressCommandFinished = true;
+      codexLinuxUpdateProgressError =
+        error == null
+          ? null
+          : String(error?.stderr ?? error?.stdout ?? error?.message ?? error);
+      codexLinuxRenderUpdateProgress();
+      const state = codexLinuxReadUpdateState();
+      if (!codexLinuxUpdateProgressActive(state?.status)) {
+        codexLinuxStopUpdateProgressMonitor();
+      }
+    }
+
+    async function codexLinuxRunUpdateManagerWithProgress(args) {
+      codexLinuxStartUpdateProgress();
+      try {
+        const result = await codexLinuxRunUpdateManager(args);
+        codexLinuxFinishUpdateProgress(null);
+        return result;
+      } catch (error) {
+        codexLinuxFinishUpdateProgress(error);
+        throw error;
+      }
+    }
+  }.toString();
+  const body = runtimeSource.slice(
+    runtimeSource.indexOf("{") + 1,
+    runtimeSource.lastIndexOf("}"),
+  );
+  return body.replace(
+    '"__CODEX_LINUX_UPDATE_PROGRESS_HTML__"',
+    html,
+  );
+}
 function buildShowUpdateMessageSource(childProcessVar) {
   return `function codexLinuxUpdateErrorDetail(e){try{let t=codexLinuxReadUpdateState()?.error_message,n=e?.stderr??e?.stdout??e?.message??e,r=String(t??n??\`Unknown update error\`).trim();return r||\`Unknown update error\`}catch{return\`Unknown update error\`}}async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{let e=String(codexLinuxMessage??\`Codex Desktop update\`),t=String(codexLinuxDetail??\`\`),n=String(process.env.XDG_CURRENT_DESKTOP??process.env.DESKTOP_SESSION??\`\`).toLowerCase();if(n.includes(\`kde\`)||n.includes(\`plasma\`)){let r=await new Promise(r=>{try{${childProcessVar}.execFile(\`kdialog\`,[\`--title\`,e,\`--msgbox\`,t],{windowsHide:!0},e=>r(e==null||e.code!==\`ENOENT\`&&e.code!==\`EACCES\`))}catch{r(!1)}});if(r)return}let r=codexLinuxGetElectronModule();if(!r)return;await r.dialog?.showMessageBox({type:\`info\`,buttons:[\`OK\`],defaultId:0,noLink:!0,message:e,detail:t})}catch{}}`;
 }
@@ -68,9 +394,10 @@ function buildQuitForUpdateSource(callInstallAfterQuit) {
 function buildBridgeSource({ childProcessVar, fsVar, pathVar }) {
   const showUpdateMessage = buildShowUpdateMessageSource(childProcessVar);
   const upToDateDetail = buildUpToDateDetailSource();
+  const updateProgress = buildUpdateProgressSource();
   const installAfterQuit = buildInstallAfterQuitSource(childProcessVar);
   const quitForUpdate = buildQuitForUpdateSource(true);
-  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${upToDateDetail}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
+  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${upToDateDetail}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}${updateProgress}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
 }
 
 function packageUpdateManagerCompatibilityMethods() {
@@ -118,6 +445,18 @@ function migrateLinuxUpdaterBridgeSource(source, childProcessVar) {
     "async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}",
   );
   if (
+    patchedSource.includes("function codexLinuxRunUpdateManager(") &&
+    !patchedSource.includes("function codexLinuxRunUpdateManagerWithProgress(")
+  ) {
+    patchedSource = patchedSource.replace(
+      "async function codexLinuxProbeUpdateManager()",
+      `${buildUpdateProgressSource()}async function codexLinuxProbeUpdateManager()`,
+    );
+  }
+  patchedSource = patchedSource.split("await codexLinuxRunUpdateManager([`check-now`])").join(
+    "await codexLinuxRunUpdateManagerWithProgress([`check-now`])",
+  );
+  if (
     patchedSource.includes("function codexLinuxReadUpdateState(") &&
     !patchedSource.includes("function codexLinuxUpToDateDetail(")
   ) {
@@ -127,9 +466,19 @@ function migrateLinuxUpdaterBridgeSource(source, childProcessVar) {
     );
   }
   patchedSource = patchedSource.replace(
-    "await codexLinuxRunUpdateManager([`check-now`]),e()}catch(t){",
-    "await codexLinuxRunUpdateManager([`check-now`]);let n=e();!this.isUpdateReady&&n&&(n.status===`idle`||n.status===`installed`)&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(n))}catch(t){",
+    "await codexLinuxRunUpdateManagerWithProgress([`check-now`]),e()}catch(t){",
+    "await codexLinuxRunUpdateManagerWithProgress([`check-now`]);let n=e();!this.isUpdateReady&&n&&(n.status===`idle`||n.status===`installed`)&&!codexLinuxHasUpdateProgressWindow()&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(n))}catch(t){",
   );
+  if (
+    !patchedSource.includes(
+      "this.setUpdateLifecycleState(this.isUpdateReady?`ready`:`idle`),codexLinuxHasUpdateProgressWindow()||await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(t))",
+    )
+  ) {
+    patchedSource = patchedSource.replace(
+      "this.setUpdateLifecycleState(this.isUpdateReady?`ready`:`idle`),await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(t))",
+      "this.setUpdateLifecycleState(this.isUpdateReady?`ready`:`idle`),codexLinuxHasUpdateProgressWindow()||await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(t))",
+    );
+  }
   const probeSource =
     "async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([`--help`])}";
   const refreshSource =
@@ -195,9 +544,21 @@ function migrateLinuxUpdaterBridgeSource(source, childProcessVar) {
   patchedSource = replaceAfter(
     patchedSource,
     bootstrapNeedle,
-    "await codexLinuxRunUpdateManager([`check-now`]),i(),a()",
-    "await codexLinuxRunUpdateManager([`check-now`]);let u=i();a(),!t&&u&&(u.status===`idle`||u.status===`installed`)&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(u))",
+    "await codexLinuxRunUpdateManagerWithProgress([`check-now`]),i(),a()",
+    "await codexLinuxRunUpdateManagerWithProgress([`check-now`]);let u=i();a(),!t&&u&&(u.status===`idle`||u.status===`installed`)&&!codexLinuxHasUpdateProgressWindow()&&await codexLinuxShowUpdateMessage(`Codex Desktop is up to date`,codexLinuxUpToDateDetail(u))",
   );
+  if (
+    !patchedSource.includes(
+      "n=t?`ready`:`idle`,a(),codexLinuxHasUpdateProgressWindow()||await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(e))",
+    )
+  ) {
+    patchedSource = replaceAfter(
+      patchedSource,
+      "function codexLinuxCreatePackageUpdateManager(",
+      "n=t?`ready`:`idle`,a(),await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(e))",
+      "n=t?`ready`:`idle`,a(),codexLinuxHasUpdateProgressWindow()||await codexLinuxShowUpdateMessage(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail(e))",
+    );
+  }
   patchedSource = replaceAfter(
     patchedSource,
     bootstrapNeedle,

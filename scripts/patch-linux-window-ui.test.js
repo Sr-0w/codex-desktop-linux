@@ -151,6 +151,8 @@ const currentOpaqueBackgroundBundle =
   "var QK=`#00000000`,$K=`#000000`,eq=`#f9f9f9`;function vq(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`globalDictation`||e===`hotkeyWindowHome`||e===`hotkeyWindowThread`}function xq({platform:e,appearance:t,opaqueWindowsEnabled:n,prefersDarkColors:r}){return n&&!vq(t)&&(e===`darwin`||e===`win32`)?{backgroundColor:r?$K:eq,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!vq(t)?{backgroundColor:QK,backgroundMaterial:`mica`}:{backgroundColor:QK,backgroundMaterial:null}}";
 const currentOpaqueWindowSurfaceBackgroundBundle =
   "var W4=`#00000000`,G4=`#000000`,K4=`#f9f9f9`;function g3(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`globalDictation`||e===`hotkeyWindowHome`||e===`hotkeyWindowThread`||e===`hud`}function v3({appearance:e,opaqueWindowsEnabled:t,platform:n}){return t&&!g3(e)&&(n===`darwin`||n===`win32`)}function S3({platform:e,appearance:t,opaqueWindowSurfaceEnabled:n,prefersDarkColors:r}){return n?{backgroundColor:r?G4:K4,backgroundMaterial:e===`win32`?`none`:null}:e===`win32`&&!g3(t)?{backgroundColor:W4,backgroundMaterial:`mica`}:{backgroundColor:W4,backgroundMaterial:null}}class k3{isOpaqueWindowsEnabled(){return theme?.opaqueWindows===!0}shouldUseOpaqueWindowSurface(e,t,n){return this.shouldAlwaysUseOpaqueWindowSurface(e)}shouldAlwaysUseOpaqueWindowSurface(e){return v3({appearance:e,opaqueWindowsEnabled:this.isOpaqueWindowsEnabled(),platform:process.platform})||!BA()&&!g3(e)}}";
+const namespacedOpaqueWindowSurfaceBackgroundBundle =
+  "var W4=`#00000000`,G4=`#000000`,K4=`#f9f9f9`;function k9(e){return e===`avatarOverlay`||e===`browserCommentPopup`||e===`hud`}function uAe({appearance:e,opaqueWindowsEnabled:t,platform:n}){return t&&!k9(e)&&(n===`darwin`||n===`win32`)}class A9{isOpaqueWindowsEnabled(){return theme?.opaqueWindows===!0}shouldAlwaysUseOpaqueWindowSurface(e){return uAe({appearance:e,opaqueWindowsEnabled:this.isOpaqueWindowsEnabled(),platform:process.platform})||!r.w()&&!k9(e)}}";
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2439,6 +2441,18 @@ test("patches current opaque window surface background helper shape for Linux", 
   assert.match(patched, /opaqueWindowSurfaceEnabled:n/);
 });
 
+test("patches namespaced native capability helper for Linux opaque surfaces", () => {
+  const patched = applyPatchTwice(
+    applyLinuxOpaqueBackgroundPatch,
+    namespacedOpaqueWindowSurfaceBackgroundBundle,
+  );
+
+  assert.match(
+    patched,
+    /shouldAlwaysUseOpaqueWindowSurface\(e\)\{return process\.platform===`linux`&&!k9\(e\)\|\|uAe\(\{appearance:e,opaqueWindowsEnabled:this\.isOpaqueWindowsEnabled\(\),platform:process\.platform\}\)\|\|!r\.w\(\)&&!k9\(e\)\}/,
+  );
+});
+
 test("patches current webview opaque window default bundle shapes", () => {
   const resolvedThemeSource =
     "function oe(e,t){let n=o[t];return{accent:p(e?.accent)??n.accent,contrast:se(e?.contrast,n.contrast),fonts:le(e?.fonts),ink:p(e?.ink)??n.ink,opaqueWindows:e?.opaqueWindows??n.opaqueWindows,semanticColors:ue(e?.semanticColors,n.semanticColors),surface:p(e?.surface)??n.surface}}";
@@ -2916,6 +2930,27 @@ test("keeps avatar overlay interactivity working after native presentation drift
   assert.match(patched, /this\.setWindowBounds\(e,o\.windowBounds,n,r\),this\.sendLayoutToRenderer\(e,i\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.match(patched, /e\.moveTop\(\),e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\),!t&&this\.isOpen\(\)&&\(this\.finishPendingPresentation\(\),this\.broadcastOpenState\(\)\)\}showWindowIfReady/);
   assert.match(patched, /this\.cancelMomentum\(\),this\.clearMovedWindowPersist\(\),this\.window=null/);
+});
+
+test("keeps avatar overlay interactivity with current composition host layout", () => {
+  const source = currentAvatarOverlayBundleFixture().replace(
+    "applyLayout(e,t=this.getCurrentDisplay(),n=!1,r=!0,i=null){if(e.isDestroyed())return;let a=t.bounds;this.displayId=t.id,this.resolutionKey=H2(a),this.displayBounds=a;let o=UB({anchor:this.anchor,displayBounds:this.layoutMode===`native`?t.workArea:t.bounds,mode:this.layoutMode,mascotSize:this.mascotSize,nativeMaterialAttached:this.compositionHost.isNativeMaterialAttached(),previousPlacement:this.placement,traySize:this.traySize??(this.layoutMode===`native`?k2:O2)});this.anchor=o.anchor,this.layout=o,this.placement=o.placement,this.setWindowBounds(e,o.windowBounds,n,r),this.sendLayoutToRenderer(e,i)}getLayout(e)",
+    "applyLayout(e,t=this.getCurrentDisplay(),n=!1,r=!0,i=null){if(e.isDestroyed())return;let o=this.getLayoutForDisplay(t);this.anchor=o.anchor,this.layout=o,this.placement=o.placement,this.setWindowBounds(e,o.windowBounds,n,r),this.compositionHost.updateMascotRect(o.mascot,o.placement),this.sendLayoutToRenderer(e,i)}getLayoutForDisplay(e){return UB({anchor:this.anchor,displayBounds:e.bounds,mode:this.layoutMode,mascotSize:this.mascotSize,traySize:this.traySize??(this.layoutMode===`native`?k2:O2)})}setRemoteHostedPIPContentLayoutState(e){return e}getLayout(e)",
+  );
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxAvatarOverlayMousePassthroughPatch, source),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(
+    patched,
+    /this\.setWindowBounds\(e,o\.windowBounds,n,r\),this\.compositionHost\.updateMascotRect\(o\.mascot,o\.placement\),this\.sendLayoutToRenderer\(e,i\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/,
+  );
+  assert.match(
+    patched,
+    /traySize:process\.platform===`linux`[^}]+this\.traySize:\s*this\.traySize\?\?\(this\.layoutMode===`native`\?k2:O2\)\}\)\}setRemoteHostedPIPContentLayoutState/,
+  );
 });
 
 test("keeps avatar overlay passthrough patching when Computer Use cursor methods are interleaved", () => {
@@ -3575,6 +3610,27 @@ test("adds Linux tray startup support for current appBrand initializer", () => {
   assert.match(
     patched,
     /ee\(\);process\.platform===`linux`&&console\.warn\(`\[codex-linux\] Failed to set up system tray`,e\)\}/,
+  );
+});
+
+test("recognizes current comma-declared tray setup already started on Linux", () => {
+  const source = [
+    "async function GAe(e){let t=new a.Tray(e.repoRoot);return t}",
+    "let Le=e=>e,Re=async()=>{try{await GAe({appBrand:r.mn(),buildFlavor:s,repoRoot:z.repoRoot})}catch(e){C.reportNonFatal(e)}};(N||process.platform===`linux`)&&Re();",
+  ].join("");
+
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxTrayPatch, source, null),
+  );
+
+  assert.deepEqual(warnings.filter((warning) => warning.includes("tray startup")), []);
+  assert.match(
+    patched,
+    /\(N\|\|process\.platform===`linux`&&\(typeof codexLinuxIsTrayEnabled!==`function`\|\|codexLinuxIsTrayEnabled\(\)\)\)&&Re\(\);/,
+  );
+  assert.match(
+    patched,
+    /catch\(e\)\{C\.reportNonFatal\(e\);process\.platform===`linux`&&console\.warn\(`/,
   );
 });
 
@@ -5248,12 +5304,25 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /async function codexLinuxRefreshUpdateState\(\)/);
   assert.match(patched, /async function codexLinuxRefreshUpdateState\(\)\{return codexLinuxReadUpdateState\(\)\}/);
   assert.doesNotMatch(patched, /codexLinuxRunUpdateManager\(\[`status`,`--json`\]\)/);
+  assert.match(patched, /function codexLinuxOpenUpdateProgress\(\)/);
+  assert.match(patched, /new electron\.BrowserWindow\(options\)/);
+  assert.match(patched, /title: "Codex Desktop Update"/);
+  assert.match(patched, /contextIsolation: true/);
+  assert.match(patched, /sandbox: true/);
+  assert.doesNotMatch(patched, /frame:\s*(?:false|!1)/);
+  assert.match(patched, /checking_upstream/);
+  assert.match(patched, /downloading_dmg/);
+  assert.match(patched, /preparing_workspace/);
+  assert.match(patched, /patching_app/);
+  assert.match(patched, /building_package/);
+  assert.match(patched, /ready_to_install/);
+  assert.match(patched, /aria-label=\\"Estimated update progress\\"/);
   assert.match(patched, /await codexLinuxProbeUpdateManager\(\),e\(\)/);
   assert.match(patched, /if\(!this\.options\.enableUpdater&&process\.platform!==`linux`\)/);
   assert.match(patched, /process\.platform===`linux`\?await this\.initializeLinuxPackageUpdater\(\)/);
   assert.match(patched, /async initializeLinuxPackageUpdater\(\)/);
   assert.match(patched, /this\.updater=\{setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\},checkForUpdates/);
-  assert.match(patched, /codexLinuxRunUpdateManager\(\[`check-now`\]\)/);
+  assert.match(patched, /codexLinuxRunUpdateManagerWithProgress\(\[`check-now`\]\)/);
   assert.match(patched, /Codex Desktop is up to date/);
   assert.match(patched, /n\.status===`idle`\|\|n\.status===`installed`/);
   assert.match(patched, /codexLinuxShowUpdateMessage\(`Codex Desktop update failed`,codexLinuxUpdateErrorDetail\(t\)\)/);
@@ -5325,6 +5394,8 @@ test("adds Linux package updater to current bootstrap updater wiring", () => {
   assert.match(patched, /setAutomaticBackgroundDownloadsEnabled:\(\)=>\{\}/);
   assert.match(patched, /getIsUpdateReady:\(\)=>s&&t/);
   assert.match(patched, /checkForUpdates:async\(\)=>\{if\(!await c\)return;n=`checking`/);
+  assert.match(patched, /codexLinuxRunUpdateManagerWithProgress\(\[`check-now`\]\)/);
+  assert.match(patched, /function codexLinuxOpenUpdateProgress\(\)/);
   assert.match(patched, /Codex Desktop is up to date/);
   assert.match(patched, /u\.status===`idle`\|\|u\.status===`installed`/);
   assert.match(patched, /installUpdatesIfAvailable:async\(\)=>\{if\(!await c\)\{a\(\);return\}i\(\);if\(!t\)\{a\(\);return\}/);

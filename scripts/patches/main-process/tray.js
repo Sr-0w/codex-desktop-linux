@@ -169,7 +169,7 @@ function hasNativeLinuxTrayMenuRefresh(source, persistentMenuMethod) {
 
 function findDynamicTraySetup(source) {
   const setupRegex =
-    /let ([A-Za-z_$][\w$]*)=async\(\)=>\{(?:[A-Za-z_$][\w$]*=!0;)?try\{await ([A-Za-z_$][\w$]*)\(\{/g;
+    /(?:\blet\s+|,)([A-Za-z_$][\w$]*)=async\(\)=>\{(?:[A-Za-z_$][\w$]*=!0;)?try\{await ([A-Za-z_$][\w$]*)\(\{/g;
   let match;
   while ((match = setupRegex.exec(source)) != null) {
     const [, setupFn, factoryFn] = match;

@@ -450,7 +450,7 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
   }
 
   const i3TrayFallbackRegex =
-    /traySize:this\.traySize\?\?([A-Za-z_$][\w$]*|\([^{};]*?\))\}\)([;,]this\.anchor=|\}getLayout)/;
+    /traySize:this\.traySize\?\?([A-Za-z_$][\w$]*|\([^{};]*?\))\}\)([;,]this\.anchor=|\}(?:getLayout|setRemoteHostedPIPContentLayoutState))/;
   const i3TrayFallbackPatch =
     "traySize:process.platform===`linux`&&typeof this.codexLinuxIsI3Session==`function`&&this.codexLinuxIsI3Session()?this.traySize:this.traySize??$1})$2";
   if (
@@ -490,6 +490,21 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
       applyLayoutMethod.text.replace(
         /this\.setWindowBounds\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),((?:this\.[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?\(\2\.[A-Za-z_$][\w$]*\),)*)this\.sendLayoutToRenderer\(\1((?:,[A-Za-z_$][\w$]*)*)\)/,
         "this.setWindowBounds($1,$2.windowBounds$3),$4this.sendLayoutToRenderer($1$5),process.platform===`linux`&&this.applyPointerInteractivityPolicy()",
+      ),
+    );
+  } else if (
+    applyLayoutMethod != null &&
+    /this\.setWindowBounds\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.compositionHost\.updateMascotRect\(\2\.mascot,\2\.placement\),this\.sendLayoutToRenderer\(\1((?:,[A-Za-z_$][\w$]*)*)\)/.test(
+      applyLayoutMethod.text,
+    )
+  ) {
+    recordStrategy("avatar-apply-layout", "upstream-composition-host");
+    patchedSource = replaceAvatarMethodText(
+      patchedSource,
+      applyLayoutMethod,
+      applyLayoutMethod.text.replace(
+        /this\.setWindowBounds\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\.windowBounds((?:,[A-Za-z_$][\w$]*)*)\),this\.compositionHost\.updateMascotRect\(\2\.mascot,\2\.placement\),this\.sendLayoutToRenderer\(\1((?:,[A-Za-z_$][\w$]*)*)\)/,
+        "this.setWindowBounds($1,$2.windowBounds$3),this.compositionHost.updateMascotRect($2.mascot,$2.placement),this.sendLayoutToRenderer($1$4),process.platform===`linux`&&this.applyPointerInteractivityPolicy()",
       ),
     );
   } else if (

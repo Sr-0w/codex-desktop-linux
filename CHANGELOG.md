@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- A native Electron progress window for manual **Help > Check for Updates**
+  checks on Linux. It follows the updater's persisted state through upstream
+  detection, DMG download, workspace preparation, app patching, native package
+  creation, and the final ready/current/failed result, with an estimated
+  percentage, elapsed time, installed version, and candidate version. Closing
+  the window only hides it; the package rebuild continues in the background.
 - Native ARM64 release builds for Debian/Ubuntu/Raspberry Pi OS, RPM-based
   distributions, Arch Linux ARM, Gentoo, AppImage, and Nix. GitHub Actions now
   builds the complete app independently on `ubuntu-24.04-arm`, validates the

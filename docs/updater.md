@@ -22,6 +22,18 @@ It:
   postmarketOS)
 - performs best-effort Codex CLI preflight from the launcher
 
+## Manual Check Progress
+
+**Help > Check for Updates** opens a native Electron window while the manual
+check runs. The window reads the updater's atomically-written state file and
+shows the current step, an estimated whole-flow percentage, elapsed time, the
+installed version, and the candidate version when one has been detected. It
+stays attached to a rebuild already started by the background service.
+
+The progress window can be hidden without cancelling the check or local package
+build. Automatic daemon and launch-time checks remain background-only and use
+desktop notifications for actionable results.
+
 The postmarketOS package is intentionally different: a musl host does not
 rebuild the glibc Electron payload locally. Its updater polls the checksum for
 `codex-desktop-linux-postmarketos-aarch64.apk` on the latest stable GitHub

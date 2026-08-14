@@ -580,7 +580,7 @@ function applyLinuxResizeRepaintPatch(currentSource) {
 function applyLinuxOpaqueBackgroundPatch(currentSource) {
   let patchedSource = currentSource;
   const shouldAlwaysOpaqueSurfaceRegex =
-    /shouldAlwaysUseOpaqueWindowSurface\(([A-Za-z_$][\w$]*)\)\{return\s*([A-Za-z_$][\w$]*)\(\{appearance:\1,opaqueWindowsEnabled:this\.isOpaqueWindowsEnabled\(\),platform:process\.platform\}\)\|\|!([A-Za-z_$][\w$]*)\(\)&&!([A-Za-z_$][\w$]*)\(\1\)\}/u;
+    /shouldAlwaysUseOpaqueWindowSurface\(([A-Za-z_$][\w$]*)\)\{return\s*([A-Za-z_$][\w$]*)\(\{appearance:\1,opaqueWindowsEnabled:this\.isOpaqueWindowsEnabled\(\),platform:process\.platform\}\)\|\|!([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\(\)&&!([A-Za-z_$][\w$]*)\(\1\)\}/u;
   const shouldAlwaysOpaqueSurfaceMatch = patchedSource.match(shouldAlwaysOpaqueSurfaceRegex);
   if (shouldAlwaysOpaqueSurfaceMatch != null) {
     const [
