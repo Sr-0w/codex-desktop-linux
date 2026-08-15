@@ -43,6 +43,23 @@ sys.stdout.write(match.group(1).strip())
 '
 }
 
+fetch_appcast_latest_archive_url() {
+    local url="${1:-$APPCAST_URL}"
+    curl -fsSL --retry 3 "$url" | python3 -c '
+import re
+import sys
+
+xml = sys.stdin.read()
+item = re.search(r"<item>(.*?)</item>", xml, re.S)
+if not item:
+    sys.exit("Could not find the latest appcast item")
+enclosure = re.search(r"<enclosure\s+url=\"([^\"]+)\"", item.group(1))
+if not enclosure:
+    sys.exit("Could not find the latest appcast enclosure URL")
+sys.stdout.write(enclosure.group(1).strip())
+'
+}
+
 prefetch_sri() {
     local url="$1"
     nix store prefetch-file --json --hash-type sha256 "$url" \
@@ -97,6 +114,30 @@ raise SystemExit(f"Could not find {key!r} after {anchor!r} in {path}")
 PY
 }
 
+replace_flake_url() {
+    local anchor="$1"
+    local new_url="$2"
+
+    python3 - "$FLAKE_FILE" "$anchor" "$new_url" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+anchor = sys.argv[2]
+new_url = sys.argv[3]
+text = path.read_text()
+pattern = re.compile(
+    rf'({re.escape(anchor)}.*?\burl\s*=\s*")[^"]+(";)',
+    re.S,
+)
+patched, count = pattern.subn(lambda match: match.group(1) + new_url + match.group(2), text, count=1)
+if count != 1:
+    raise SystemExit(f"Could not replace URL after {anchor!r} in {path}")
+path.write_text(patched)
+PY
+}
+
 read_flake_hash() {
     local anchor="$1"
     local key="$2"
@@ -142,8 +183,25 @@ run_nix_build() {
 }
 
 main() {
+    local appcast_latest_version=""
+    local appcast_latest_archive_url=""
+    if appcast_latest_version="$(fetch_appcast_latest_version "$APPCAST_URL" 2>/dev/null)" && \
+        appcast_latest_archive_url="$(fetch_appcast_latest_archive_url "$APPCAST_URL" 2>/dev/null)"; then
+        echo "Appcast latest version: $appcast_latest_version"
+        echo "Immutable upstream archive: $appcast_latest_archive_url"
+    else
+        echo "WARN: Could not read the latest archive from $APPCAST_URL; falling back to $UPSTREAM_DMG_URL." >&2
+        appcast_latest_version=""
+        appcast_latest_archive_url=""
+    fi
+
+    local upstream_archive_url="$UPSTREAM_DMG_URL"
+    if [ -n "$appcast_latest_archive_url" ]; then
+        upstream_archive_url="$appcast_latest_archive_url"
+    fi
+
     mkdir -p "$(dirname "$UPSTREAM_DMG_PATH")"
-    curl -fL --retry 3 -o "$UPSTREAM_DMG_PATH" "$UPSTREAM_DMG_URL"
+    curl -fL --retry 3 -o "$UPSTREAM_DMG_PATH" "$upstream_archive_url"
 
     new_dmg_hash="$(nix hash file --sri --type sha256 "$UPSTREAM_DMG_PATH")"
     if ! validate_sri_hash "$new_dmg_hash"; then
@@ -156,13 +214,6 @@ main() {
     # hours, so it is reported as metadata instead of blocking the refresh PR.
     local old_electron_version
     old_electron_version="$(read_flake_string electronVersion)"
-
-    local appcast_latest_version=""
-    if appcast_latest_version="$(fetch_appcast_latest_version "$APPCAST_URL" 2>/dev/null)"; then
-        echo "Appcast latest version: $appcast_latest_version"
-    else
-        echo "WARN: Could not read upstream appcast version from $APPCAST_URL; continuing with Codex.dmg pins." >&2
-    fi
 
     WRITE_PINS=1 APPCAST_URL= "$REPO_DIR/scripts/ci/validate-nix-pins.sh" "$UPSTREAM_DMG_PATH"
 
@@ -199,7 +250,8 @@ main() {
 
     current_dmg_hash="$(read_flake_hash "codexDmg = pkgs.fetchurl {" "hash = ")"
     echo "Current Codex.dmg hash:  $current_dmg_hash"
-    echo "Upstream Codex.dmg hash: $new_dmg_hash"
+    echo "Upstream archive hash:   $new_dmg_hash"
+    replace_flake_url "codexDmg = pkgs.fetchurl {" "$upstream_archive_url"
     replace_flake_hash "codexDmg = pkgs.fetchurl {" "hash = " "$new_dmg_hash"
 
     # Seed the Nix store so the verification build can reuse the DMG that was
@@ -231,6 +283,13 @@ case "${1:-}" in
             exit 2
         fi
         fetch_appcast_latest_version "${2:-$APPCAST_URL}"
+        ;;
+    read-appcast-archive-url)
+        if [ "$#" -gt 2 ]; then
+            echo "usage: $0 read-appcast-archive-url [url]" >&2
+            exit 2
+        fi
+        fetch_appcast_latest_archive_url "${2:-$APPCAST_URL}"
         ;;
     "")
         main

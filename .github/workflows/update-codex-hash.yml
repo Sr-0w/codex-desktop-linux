@@ -95,22 +95,23 @@ jobs:
           git add flake.nix nix/native-modules/package.json nix/native-modules/package-lock.json
           git commit \
             -m "fix(nix): refresh upstream Nix pins${CODEX_VERSION:+ for $CODEX_VERSION}" \
-            -m "Refreshed Codex.dmg SRI hash to $CODEX_DMG_HASH and synced codexVersion / electronVersion / native-module pins to the current upstream DMG." \
-            -m "Verified all Codex Desktop Nix package outputs against the refreshed DMG." \
+            -m "Refreshed the immutable upstream archive SRI hash to $CODEX_DMG_HASH and synced codexVersion / electronVersion / native-module pins." \
+            -m "Verified all Codex Desktop Nix package outputs against the refreshed archive." \
             -m "[skip ci]"
           git push --force origin "$REFRESH_BRANCH"
 
           pr_body="$RUNNER_TEMP/nix-refresh-pr-body.md"
           cat >"$pr_body" <<EOF
           ## Summary
-          - refresh Codex.dmg hash and upstream version pins to the current upstream DMG
+          - pin the immutable versioned archive from the latest official appcast
+          - refresh the upstream archive hash and version pins
           - update Electron fixed-output hashes when electronVersion changes
           - regenerate nix/native-modules/package-lock.json when native module pins change
           $APPCAST_NOTE
 
           ## Validation
           - this workflow verified all Codex Desktop Nix package outputs before opening the PR
-          - refreshed Codex.dmg SRI hash: \`$CODEX_DMG_HASH\`
+          - refreshed upstream archive SRI hash: \`$CODEX_DMG_HASH\`
           EOF
 
           pr_url="$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head "$REFRESH_BRANCH" --state open --json url --jq '.[0].url // ""')"
