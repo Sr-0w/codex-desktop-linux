@@ -9,6 +9,7 @@ VERIFY_LOG="${VERIFY_LOG:-/tmp/codex-nix-build-verify.log}"
 # Upstream Codex Sparkle appcast (x64 runners). Used only for reporting when it
 # lags behind the moving Codex.dmg; the verified DMG payload is the pin source.
 APPCAST_URL="${APPCAST_URL:-https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml}"
+OFFICIAL_LINUX_PACKAGES_URL="${OFFICIAL_LINUX_PACKAGES_URL:-https://persistent.oaistatic.com/codex-app-prod/linux/deb/dists/stable/main/binary-amd64/Packages}"
 
 PACKAGE_OUTPUTS=(
     ".#codex-desktop"
@@ -171,6 +172,16 @@ main() {
     new_electron_version="$(read_flake_string electronVersion)"
     local new_codex_version
     new_codex_version="$(read_flake_string codexVersion)"
+    local official_packages
+    official_packages="$(mktemp)"
+    curl -fsSL --retry 3 -o "$official_packages" "$OFFICIAL_LINUX_PACKAGES_URL"
+    if ! node "$REPO_DIR/scripts/ci/validate-upstream-release-version.js" \
+        --version "$new_codex_version" \
+        --packages "$official_packages"; then
+        rm -f "$official_packages"
+        return 1
+    fi
+    rm -f "$official_packages"
     if [ -n "$appcast_latest_version" ] && [ "$new_codex_version" != "$appcast_latest_version" ]; then
         echo "WARN: Appcast latest version ($appcast_latest_version) differs from Codex.dmg version ($new_codex_version); proceeding with verified DMG pins." >&2
     fi

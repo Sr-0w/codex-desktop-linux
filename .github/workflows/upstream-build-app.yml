@@ -16,6 +16,8 @@ on:
       - scripts/ci/validate-patch-report.js
       - scripts/ci/validate-browser-runtime.js
       - scripts/ci/validate-browser-runtime.test.js
+      - scripts/ci/validate-upstream-release-version.js
+      - scripts/ci/validate-upstream-release-version.test.js
       - .github/workflows/upstream-build-app.yml
   push:
     branches:
@@ -32,6 +34,8 @@ on:
       - scripts/ci/validate-patch-report.js
       - scripts/ci/validate-browser-runtime.js
       - scripts/ci/validate-browser-runtime.test.js
+      - scripts/ci/validate-upstream-release-version.js
+      - scripts/ci/validate-upstream-release-version.test.js
       - .github/workflows/upstream-build-app.yml
   workflow_dispatch:
 
@@ -156,6 +160,14 @@ jobs:
 
       - name: Validate bundled Browser Use runtime
         run: node scripts/ci/validate-browser-runtime.js codex-app
+
+      - name: Reject a stale DMG CDN edge
+        run: |
+          curl -fsSL --retry 3 -o /tmp/openai-linux-Packages \
+            https://persistent.oaistatic.com/codex-app-prod/linux/deb/dists/stable/main/binary-amd64/Packages
+          node scripts/ci/validate-upstream-release-version.js \
+            --build-info codex-app/.codex-linux/build-info.json \
+            --packages /tmp/openai-linux-Packages
 
       - name: Upload upstream DMG metadata artifact
         # The build step now aborts on critical patch failures; keep uploading

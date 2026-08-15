@@ -55,6 +55,7 @@ jobs:
             node --check "$file"
           done
           node --check scripts/ci/validate-patch-report.js
+          node --check scripts/ci/validate-upstream-release-version.js
 
       - name: Check Rust formatting
         run: cargo fmt --check
@@ -72,7 +73,7 @@ jobs:
         run: node scripts/ci/test-linux-features.js
 
       - name: Test bundled Browser Use runtime contract
-        run: node --test scripts/ci/validate-browser-runtime.test.js
+        run: node --test scripts/ci/validate-browser-runtime.test.js scripts/ci/validate-upstream-release-version.test.js
 
       - name: Run script smoke tests
         run: |
