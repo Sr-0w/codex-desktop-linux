@@ -68,6 +68,12 @@ jobs:
       - name: Run Rust tests
         run: cargo test --workspace --all-targets
 
+      - name: Validate and test every Linux feature
+        run: node scripts/ci/test-linux-features.js
+
+      - name: Test bundled Browser Use runtime contract
+        run: node --test scripts/ci/validate-browser-runtime.test.js
+
       - name: Run script smoke tests
         run: |
           set -euo pipefail

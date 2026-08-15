@@ -72,12 +72,13 @@ if [ -z "$$format" ]; then \
 fi; \
 printf '%s\n' "$$format"
 
-.PHONY: help check test build-updater maybe-build-updater build-postmarketos-updater maybe-build-postmarketos-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman gentoo postmarketos appimage package install service-enable service-status clean-dist clean-state
+.PHONY: help check test test-linux-features build-updater maybe-build-updater build-postmarketos-updater maybe-build-postmarketos-updater update rebuild rebuild-install inspect-upstream build-app build-app-fresh setup-native bootstrap-native install-native update-native rebuild-next run-app build-dev-app run-dev-app deb rpm pacman gentoo postmarketos appimage package install service-enable service-status clean-dist clean-state
 
 help:
 	@printf '\nCodex Desktop Linux Make Targets\n\n'
 	@printf '  %-18s %s\n' "make check" "Run cargo check for codex-update-manager"
 	@printf '  %-18s %s\n' "make test" "Run updater test suite"
+	@printf '  %-18s %s\n' "make test-linux-features" "Validate and test every opt-in Linux feature"
 	@printf '  %-18s %s\n' "make build-updater" "Build codex-update-manager in release mode"
 	@printf '  %-18s %s\n' "make update" "Find a DMG, rebuild, and replace codex-app/ with backup"
 	@printf '  %-18s %s\n' "make rebuild" "Inspect a DMG and build a side-by-side candidate"
@@ -153,6 +154,11 @@ check:
 test:
 	@echo "[make] Running cargo test"
 	cargo test $(CARGO_JOBS_ARG) -p codex-update-manager
+	@$(MAKE) test-linux-features
+
+test-linux-features:
+	@echo "[make] Validating and testing all Linux features"
+	node scripts/ci/test-linux-features.js
 
 build-updater:
 	@echo "[make] Building codex-update-manager (release)"

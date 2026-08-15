@@ -618,6 +618,7 @@ stage_chrome_plugin_from_upstream() {
     patch_browser_use_optional_after_submitted_hook "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_node_repl_env_guard "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_node_repl_config_shim "$target_plugin/scripts/browser-client.mjs"
+    patch_browser_use_node_repl_environment_shim "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_native_pipe_import_meta_bridge "$target_plugin/scripts/browser-client.mjs"
     patch_browser_use_site_status_allowlist_fallback "$target_plugin/scripts/browser-client.mjs"
     normalize_plugin_script_executable_modes "$target_plugin"
@@ -673,7 +674,8 @@ PY
 patch_browser_use_optional_after_submitted_hook() {
     local client="$1"
 
-    if grep -q "codexLinuxOptionalAfterSubmittedHook" "$client"; then
+    if grep -q "codexLinuxOptionalAfterSubmittedHook" "$client" && \
+        grep -q "codexLinuxOptionalResponseMetaHook" "$client"; then
         return 0
     fi
 
@@ -689,7 +691,7 @@ pattern = re.compile(
     r'(?P<bridge>[A-Za-z_$][\w$]*)\.addAfterSubmittedCodeHook\s*\('
 )
 match = pattern.search(source)
-if match is None:
+if match is None and "codexLinuxOptionalAfterSubmittedHook" not in source:
     if re.search(
         r'\|\|\s*\(\s*[A-Za-z_$][\w$]*\.addAfterSubmittedCodeHook\s*\(',
         source,
@@ -698,16 +700,46 @@ if match is None:
             "WARN: Could not find Browser Use optional after-submit hook insertion point",
             file=sys.stderr,
         )
-    raise SystemExit(0)
+if match is not None:
+    flag = match.group("flag")
+    bridge = match.group("bridge")
+    replacement = (
+        f'{flag}||typeof {bridge}.addAfterSubmittedCodeHook!="function"'
+        f'/*codexLinuxOptionalAfterSubmittedHook*/||('
+        f'{bridge}.addAfterSubmittedCodeHook('
+    )
+    source = source[:match.start()] + replacement + source[match.end():]
 
-flag = match.group("flag")
-bridge = match.group("bridge")
-replacement = (
-    f'{flag}||typeof {bridge}.addAfterSubmittedCodeHook!="function"'
-    f'/*codexLinuxOptionalAfterSubmittedHook*/||('
-    f'{bridge}.addAfterSubmittedCodeHook('
+response_meta_pattern = re.compile(
+    r'return (?P<bridge>[A-Za-z_$][\w$]*)\.addAfterSubmittedCodeHook\('
 )
-path.write_text(source[:match.start()] + replacement + source[match.end():], encoding="utf-8")
+response_meta_match = response_meta_pattern.search(source)
+if response_meta_match is not None:
+    bridge = response_meta_match.group("bridge")
+    replacement = (
+        f'return typeof {bridge}.addAfterSubmittedCodeHook=="function"&&'
+        f'{bridge}.addAfterSubmittedCodeHook('
+        '/*codexLinuxOptionalResponseMetaHook*/'
+    )
+    source = (
+        source[:response_meta_match.start()]
+        + replacement
+        + source[response_meta_match.end():]
+    )
+elif "codexLinuxOptionalResponseMetaHook" not in source:
+    if re.search(
+        r'return[^;}]{0,200}\.addAfterSubmittedCodeHook\s*\(',
+        source,
+    ) is None:
+        path.write_text(source, encoding="utf-8")
+        raise SystemExit(0)
+    print(
+        "WARN: Could not find Browser Use response metadata hook insertion point",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+path.write_text(source, encoding="utf-8")
 PY
 }
 
@@ -858,39 +890,18 @@ PY
 patch_browser_use_node_repl_env_guard() {
     local client="$1"
 
-    if grep -Eq 'globalThis\.nodeRepl\?\.env\?\.\[[^]]+\]' "$client"; then
-        return 0
-    fi
-
     python3 - "$client" <<'PY'
 from pathlib import Path
-import re
 import sys
 
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
-pattern = re.compile(
-    r'function (?P<helper>[A-Za-z_$][\w$]*)\((?P<key>[A-Za-z_$][\w$]*)\)\{'
-    r'let (?P<value>[A-Za-z_$][\w$]*)=globalThis\.nodeRepl\?\.env\[(?P=key)\];'
-    r'return typeof (?P=value)=="string"\?(?P=value):void 0\}'
-)
-match = pattern.search(source)
-if match is None:
-    print(
-        "WARN: Could not find Browser Use nodeRepl env guard insertion point — leaving browser-client.mjs unchanged",
-        file=sys.stderr,
-    )
-    raise SystemExit(0)
-
-helper = match.group("helper")
-key = match.group("key")
-value = match.group("value")
-replacement = (
-    f'function {helper}({key}){{'
-    f'let {value}=globalThis.nodeRepl?.env?.[{key}];'
-    f'return typeof {value}=="string"?{value}:void 0}}'
-)
-path.write_text(source[:match.start()] + replacement + source[match.end():], encoding="utf-8")
+patched = source.replace("globalThis.nodeRepl?.env[", "globalThis.nodeRepl?.env?.[")
+if "globalThis.nodeRepl?.env[" in patched:
+    print("WARN: Browser Use still contains an unsafe nodeRepl env access", file=sys.stderr)
+    raise SystemExit(1)
+if patched != source:
+    path.write_text(patched, encoding="utf-8")
 PY
 }
 
@@ -1060,6 +1071,108 @@ path.write_text(source[:match.start()] + replacement + source[match.end():], enc
 PY
 }
 
+patch_browser_use_node_repl_environment_shim() {
+    local client="$1"
+
+    if grep -q "codexLinuxBrowserUseEnvironmentShim" "$client"; then
+        return 0
+    fi
+
+    python3 - "$client" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+bootstrap_pattern = re.compile(
+    r'function (?P<helper>[A-Za-z_$][\w$]*)\(\)\{'
+    r'codexLinuxBrowserUseConfigShim\(\);'
+    r'let (?P<repl>[A-Za-z_$][\w$]*)=globalThis\.nodeRepl;'
+)
+bootstrap_match = bootstrap_pattern.search(source)
+if bootstrap_match is None:
+    if "BROWSER_USE_SECURITY_MODE" not in source:
+        raise SystemExit(0)
+    print(
+        "WARN: Could not find Browser Use runtime shim insertion point",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+shim = r'''
+function codexLinuxBrowserUseEnvironmentShim() {
+  let repl = globalThis.nodeRepl;
+  if (repl == null || repl.env != null) return;
+  let environment = Object.freeze({});
+
+  try {
+    repl.env = environment;
+    if (repl.env != null) return;
+  } catch {}
+
+  try {
+    let prototype = Object.getPrototypeOf(repl);
+    if (prototype != null && Object.getOwnPropertyDescriptor(prototype, "env") == null) {
+      Object.defineProperty(prototype, "env", {
+        configurable: true,
+        enumerable: true,
+        get: () => environment,
+      });
+    }
+  } catch {}
+}
+'''
+
+helper = bootstrap_match.group("helper")
+repl = bootstrap_match.group("repl")
+replacement = (
+    f'function {helper}(){{codexLinuxBrowserUseEnvironmentShim();'
+    f'codexLinuxBrowserUseConfigShim();let {repl}=globalThis.nodeRepl;'
+)
+patched = (
+    source[:bootstrap_match.start()]
+    + shim
+    + source[bootstrap_match.start():bootstrap_match.end()].replace(
+        bootstrap_match.group(0), replacement
+    )
+    + source[bootstrap_match.end():]
+)
+
+# New browser clients clone the privileged bridge before setup. Prototype
+# properties are intentionally not copied by object spread, so preserve the
+# safe environment explicitly on that clone as well.
+clone_pattern = re.compile(
+    r'(?P<clone>[A-Za-z_$][\w$]*)=\{\.\.\.(?P<runtime>[A-Za-z_$][\w$]*),'
+    r'platform:(?P<platform>[A-Za-z_$][\w$]*)\(\),'
+    r'setResponseMeta:(?P=runtime)\.setResponseMeta,'
+)
+clone_match = clone_pattern.search(patched)
+if clone_match is None:
+    if "createElicitation.bind" not in source:
+        raise SystemExit(0)
+    print(
+        "WARN: Could not find Browser Use privileged runtime clone",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+clone_replacement = (
+    f'{clone_match.group("clone")}'
+    f'={{...{clone_match.group("runtime")},'
+    f'env:{clone_match.group("runtime")}.env??{{}},'
+    f'platform:{clone_match.group("platform")}(),'
+    f'setResponseMeta:{clone_match.group("runtime")}.setResponseMeta,'
+)
+patched = (
+    patched[:clone_match.start()]
+    + clone_replacement
+    + patched[clone_match.end():]
+)
+path.write_text(patched, encoding="utf-8")
+PY
+}
+
 patch_browser_use_native_pipe_import_meta_bridge() {
     local client="$1"
 
@@ -1181,6 +1294,7 @@ stage_browser_plugin_from_upstream() {
     patch_browser_use_optional_after_submitted_hook "$target_client"
     patch_browser_use_node_repl_env_guard "$target_client"
     patch_browser_use_node_repl_config_shim "$target_client"
+    patch_browser_use_node_repl_environment_shim "$target_client"
     patch_browser_use_native_pipe_import_meta_bridge "$target_client"
     patch_browser_use_site_status_allowlist_fallback "$target_client"
     patch_browser_use_file_url_policy "$target_client"

@@ -4410,6 +4410,54 @@ if (module.configHome !== "fallback") {
 NODE
 }
 
+test_browser_use_missing_node_repl_environment_patch_behavior() {
+    info "Checking Browser Use compatibility with a secured nodeRepl bridge without env"
+    local workspace="$TMP_DIR/browser-missing-node-repl-env"
+    local client="$workspace/browser-client.mjs"
+
+    mkdir -p "$workspace"
+    cat > "$client" <<'JS'
+function codexLinuxBrowserUseConfigShim() {
+  let repl = globalThis.nodeRepl;
+  if (repl == null || repl.config != null) return;
+}
+function QP(){codexLinuxBrowserUseConfigShim();let t=globalThis.nodeRepl;return t?.config==null?void 0:t}
+const Wr="BROWSER_USE_SECURITY_MODE";
+const Cs="BROWSER_USE_AUTOMATED_SAFETY_PRECHECKS_ENABLED";
+function gm(t){let e=Object.freeze({env:t.env,securityMode:t.env[Wr],enabled:t.env[Cs]==="1"});return e}
+function sJ(){return "linux"}
+async function cJ(t){let e=t.createElicitation.bind(t),r={...t,platform:sJ(),setResponseMeta:t.setResponseMeta,get requestMeta(){return t.requestMeta},async createElicitation(o){return await e(o)}};return r}
+async function lJ(t){if(t.env[Wr]?.trim()!=="gaas-browser-environment")return null}
+export async function setupBrowserRuntime(){let t=QP();await lJ(t);return gm(await cJ(t))}
+JS
+
+    (
+        warn() { echo "[WARN] $*" >&2; }
+        info() { echo "[INFO] $*" >&2; }
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/scripts/lib/bundled-plugins.sh"
+        patch_browser_use_node_repl_environment_shim "$client"
+        patch_browser_use_node_repl_environment_shim "$client"
+    )
+
+    assert_contains "$client" "codexLinuxBrowserUseEnvironmentShim"
+    assert_contains "$client" 'env:t.env??{}'
+    node --input-type=module - "$client" <<'NODE'
+const modulePath = process.argv[2];
+globalThis.nodeRepl = Object.preventExtensions({
+  config: {},
+  createElicitation: async () => ({}),
+  setResponseMeta() {},
+  requestMeta: {},
+});
+const module = await import(`file://${modulePath}`);
+const runtime = await module.setupBrowserRuntime();
+if (runtime.securityMode !== undefined || runtime.enabled !== false) {
+  throw new Error(`Unexpected secured environment defaults: ${JSON.stringify(runtime)}`);
+}
+NODE
+}
+
 test_browser_use_optional_after_submitted_hook_patch_behavior() {
     info "Checking Browser Use optional after-submit hook patch"
     local workspace="$TMP_DIR/browser-optional-after-submit-hook"
@@ -4421,6 +4469,12 @@ var initialized = false;
 export function setup(bridge) {
   initialized || (bridge.addAfterSubmittedCodeHook({ timeoutMs: 1 }), initialized = true);
   return "ready";
+}
+export function setupResponseMetadata(bridge) {
+  let recorders = [];
+  return bridge.addAfterSubmittedCodeHook({ timeoutMs: 1 }), {
+    register(recorder) { recorders.push(recorder); },
+  };
 }
 JS
 
@@ -4434,6 +4488,7 @@ JS
     )
 
     assert_contains "$client" "codexLinuxOptionalAfterSubmittedHook"
+    assert_contains "$client" "codexLinuxOptionalResponseMetaHook"
     node --input-type=module - "$client" <<'NODE'
 const modulePath = process.argv[2];
 const module = await import(`file://${modulePath}`);
@@ -4445,6 +4500,8 @@ module.setup({ addAfterSubmittedCodeHook: () => { hookCalls += 1; } });
 if (hookCalls !== 1) {
   throw new Error(`Expected the available hook to be registered once, got ${hookCalls}`);
 }
+const metadata = module.setupResponseMetadata({});
+metadata.register({});
 NODE
 }
 
@@ -7067,6 +7124,7 @@ main() {
     test_browser_use_node_repl_architecture_override
     test_browser_use_node_repl_fallback_runtime
     test_browser_use_blocked_process_import_patch_behavior
+    test_browser_use_missing_node_repl_environment_patch_behavior
     test_browser_use_optional_after_submitted_hook_patch_behavior
     test_browser_use_file_url_policy_patch_behavior
     test_browser_plugin_renamed_upstream_staging

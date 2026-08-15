@@ -10,7 +10,12 @@ on:
       - scripts/patch-linux-window-ui.js
       - scripts/patch-linux-window-ui.test.js
       - scripts/patches/**
+      - scripts/lib/bundled-plugins.sh
+      - linux-features/**
+      - scripts/ci/test-linux-features.js
       - scripts/ci/validate-patch-report.js
+      - scripts/ci/validate-browser-runtime.js
+      - scripts/ci/validate-browser-runtime.test.js
       - .github/workflows/upstream-build-app.yml
   push:
     branches:
@@ -21,7 +26,12 @@ on:
       - scripts/patch-linux-window-ui.js
       - scripts/patch-linux-window-ui.test.js
       - scripts/patches/**
+      - scripts/lib/bundled-plugins.sh
+      - linux-features/**
+      - scripts/ci/test-linux-features.js
       - scripts/ci/validate-patch-report.js
+      - scripts/ci/validate-browser-runtime.js
+      - scripts/ci/validate-browser-runtime.test.js
       - .github/workflows/upstream-build-app.yml
   workflow_dispatch:
 
@@ -54,6 +64,9 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y p7zip-full make g++ python3 curl unzip
+
+      - name: Validate and test every Linux feature
+        run: node scripts/ci/test-linux-features.js
 
       - name: Capture upstream DMG metadata
         id: upstream-metadata
@@ -140,6 +153,9 @@ jobs:
 
       - name: Validate required upstream patches
         run: node scripts/ci/validate-patch-report.js patch-report.json --profile upstream-build
+
+      - name: Validate bundled Browser Use runtime
+        run: node scripts/ci/validate-browser-runtime.js codex-app
 
       - name: Upload upstream DMG metadata artifact
         # The build step now aborts on critical patch failures; keep uploading
