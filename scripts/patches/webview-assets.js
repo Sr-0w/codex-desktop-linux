@@ -338,7 +338,7 @@ function applyLinuxBrowserUseAvailabilityPatch(currentSource) {
     /featureName:`browser_use`[\s\S]{0,1400}?isBrowserAgentGateEnabled:!0,/.test(currentSource);
 
   const gatePattern =
-    /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\{isBrowserAgentGateEnabled:([A-Za-z_$][\w$]*),isBrowserSidebarEnabled:([A-Za-z_$][\w$]*),isBrowserUseEnabled:([A-Za-z_$][\w$]*),isLoading:([A-Za-z_$][\w$]*),runCodexInWsl:([A-Za-z_$][\w$]*),windowType:`electron`\}\)/g;
+    /([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\{isBrowserAgentGateEnabled:([A-Za-z_$][\w$]*),(isBrowserSidebarEnabled|isBrowserEnabled):([A-Za-z_$][\w$]*),isBrowserUseEnabled:([A-Za-z_$][\w$]*),isLoading:([A-Za-z_$][\w$]*),runCodexInWsl:([A-Za-z_$][\w$]*),windowType:`electron`\}\)/g;
 
   const patchedSource = currentSource.replace(
     gatePattern,
@@ -347,7 +347,8 @@ function applyLinuxBrowserUseAvailabilityPatch(currentSource) {
       resultVar,
       helperVar,
       gateVar,
-      sidebarVar,
+      browserEnabledField,
+      browserEnabledVar,
       browserUseVar,
       loadingVar,
       wslVar,
@@ -360,7 +361,7 @@ function applyLinuxBrowserUseAvailabilityPatch(currentSource) {
       }
 
       changed = true;
-      return `${resultVar}=${helperVar}({isBrowserAgentGateEnabled:!0,isBrowserSidebarEnabled:${sidebarVar},isBrowserUseEnabled:${browserUseVar},isLoading:${loadingVar},runCodexInWsl:${wslVar},windowType:\`electron\`})`;
+      return `${resultVar}=${helperVar}({isBrowserAgentGateEnabled:!0,${browserEnabledField}:${browserEnabledVar},isBrowserUseEnabled:${browserUseVar},isLoading:${loadingVar},runCodexInWsl:${wslVar},windowType:\`electron\`})`;
     },
   );
 
@@ -575,7 +576,7 @@ function applyLinuxBrowserUseExternalAvailabilityPatch(currentSource) {
     //     isExternalBrowserUseGateEnabled:n,windowType:r}){return r===`chrome-extension`?`available`:...}
     // Treat Linux like chrome-extension so the resolved status is `available`.
     const statusFnPattern =
-      /(function [A-Za-z_$][\w$]*\(\{isExternalBrowserUseFeatureEnabled:[A-Za-z_$][\w$]*,isExternalBrowserUseFeatureLoading:[A-Za-z_$][\w$]*,isExternalBrowserUseGateEnabled:[A-Za-z_$][\w$]*,windowType:([A-Za-z_$][\w$]*)\}\)\{return )\2===`chrome-extension`\?`available`:/;
+      /(function [A-Za-z_$][\w$]*\(\{isExternalBrowserUseFeatureEnabled:[A-Za-z_$][\w$]*,isExternalBrowserUseFeatureLoading:[A-Za-z_$][\w$]*,isExternalBrowserUseGateEnabled:[A-Za-z_$][\w$]*,(?:runCodexInWsl:[A-Za-z_$][\w$]*,)?windowType:([A-Za-z_$][\w$]*)\}\)\{return )\2===`chrome-extension`\?`available`:/;
     patchedSource = patchedSource.replace(
       statusFnPattern,
       (match, prefix, windowTypeVar) => {

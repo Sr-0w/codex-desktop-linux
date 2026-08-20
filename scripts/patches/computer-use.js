@@ -141,6 +141,27 @@ function applyLinuxComputerUsePluginGatePatch(currentSource) {
   }
 
   const computerUseNameVar = currentSource.match(/([A-Za-z_$][\w$]*)=(?:`computer-use`|"computer-use"|'computer-use')/)?.[1] ?? null;
+  const spreadGateRegex =
+    /\{\.\.\.([A-Za-z_$][\w$]*\.Os\.computerUse),([^{}]*?)isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\4===`darwin`&&\3\.computerUse,migrate:([A-Za-z_$][\w$]*)\}/g;
+  let spreadGatePatched = false;
+  const spreadPatchedSource = currentSource.replace(
+    spreadGateRegex,
+    (_match, descriptorExpr, middleFields, featuresVar, platformVar, migrateVar) => {
+      spreadGatePatched = true;
+      const installField = middleFields.includes("installWhenMissing:!0,")
+        ? ""
+        : "installWhenMissing:!0,";
+      return `{...${descriptorExpr},${installField}${middleFields}isAvailable:({features:${featuresVar},platform:${platformVar}})=>(${platformVar}===\`darwin\`||${platformVar}===\`linux\`)&&${featuresVar}.computerUse,migrate:${migrateVar}}`;
+    },
+  );
+  if (spreadGatePatched) {
+    return spreadPatchedSource;
+  }
+  if (
+    /\{\.\.\.[A-Za-z_$][\w$]*\.Os\.computerUse,installWhenMissing:!0,[^{}]*?isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\(\2===`darwin`\|\|\2===`linux`\)&&\1\.computerUse,migrate:[A-Za-z_$][\w$]*\}/.test(currentSource)
+  ) {
+    return currentSource;
+  }
   const nameExpressionPattern = String.raw`(?:[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?|` +
     String.raw`\`computer-use\`|"computer-use"|'computer-use')`;
   const gateRegex =

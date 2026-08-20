@@ -64,6 +64,19 @@ function applyBrowserUseNodeReplApprovalPatch(currentSource) {
     },
   );
 
+  // Electron 42 can place an optional env_vars spread between env and the
+  // startup timeout. Keep that expression intact and insert the policy beside
+  // the timeout, where Codex's generated MCP config accepts it.
+  const spreadMcpServerConfigRegex =
+    /(\[`mcp_servers\.\$\{[A-Za-z_$][\w$]*\}`\]:\{args:\[\],command:[A-Za-z_$][\w$]*,env:[A-Za-z_$][\w$]*,\.\.\.[A-Za-z_$][\w$]*\.length===0\?\{\}:\{env_vars:Array\.from\([A-Za-z_$][\w$]*\)\},)(?!tools:\{js:\{approval_mode:`approve`\}\},)(startup_timeout_sec:120\})/g;
+  patchedSource = patchedSource.replace(
+    spreadMcpServerConfigRegex,
+    (_match, configPrefix, configSuffix) => {
+      patchedAnyMcpServerConfig = true;
+      return `${configPrefix}tools:{js:{approval_mode:\`approve\`}},${configSuffix}`;
+    },
+  );
+
   const trustedHashesRegex =
     /trustedBrowserClientSha256s:([^,{}]+)\|\|([^,{}]+)\?([A-Za-z_$][\w$]*):\[\]/g;
   patchedSource = patchedSource.replace(
@@ -230,6 +243,17 @@ function applyLinuxBrowserUseRouteLivenessPatch(currentSource) {
 
 function applyLinuxChromeExtensionStatusPatch(currentSource) {
   if (currentSource.includes("codexLinuxChromeProfileRoots")) {
+    return currentSource;
+  }
+
+  if (
+    currentSource.includes(
+      "Opening Chrome extension settings is only supported on macOS, Windows, and Linux",
+    ) &&
+    /xdgConfigHome:[A-Za-z_$][\w$]*=process\.env\.XDG_CONFIG_HOME/.test(currentSource) &&
+    currentSource.includes(".linux.installations") &&
+    /if\([A-Za-z_$][\w$]*===`win32`\|\|[A-Za-z_$][\w$]*===`linux`\)/.test(currentSource)
+  ) {
     return currentSource;
   }
 

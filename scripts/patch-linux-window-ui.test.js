@@ -2063,6 +2063,18 @@ test("supports explicit IPC quit patching when minified aliases drift", () => {
   );
 });
 
+test("preserves upstream relaunch preparation in the quit-app IPC path", () => {
+  const source =
+    "if(s.type===`quit-app`){s.relaunch===!0&&(e.quitState?.allowQuitTemporarily(),l.app.relaunch()),l.app.quit();return}";
+  const patched = applyPatchTwice(applyLinuxExplicitIpcQuitPatch, source);
+
+  assert.match(
+    patched,
+    /if\(s\.type===`quit-app`\)\{typeof codexLinuxPrepareForExplicitQuit===`function`\?codexLinuxPrepareForExplicitQuit\(\):typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress\(\),s\.relaunch===!0&&\(e\.quitState\?\.allowQuitTemporarily\(\),l\.app\.relaunch\(\)\),l\.app\.quit\(\);return\}/,
+  );
+  assert.equal((patched.match(/codexLinuxPrepareForExplicitQuit\(\)/g) ?? []).length, 1);
+});
+
 test("patches remaining explicit quit handlers when another copy is already patched", () => {
   const quitMarkerExpression =
     "typeof codexLinuxPrepareForExplicitQuit===`function`?codexLinuxPrepareForExplicitQuit():typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress(),";
@@ -2725,6 +2737,30 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
   assert.match(patched, /e\.moveTop\(\),e\.showInactive\(\),process\.platform===`linux`&&this\.codexLinuxApplyAvatarCompositorHints\(e\),process\.platform===`linux`&&this\.applyPointerInteractivityPolicy\(\)/);
   assert.doesNotMatch(patched, /codexLinuxRecoverAvatarPointerInteractivity/);
   assert.match(patched, /this\.window===t&&\(this\.codexLinuxStopAvatarPassthroughRecovery\(\),this\.codexLinuxAvatarInputShapeKey=null,this\.codexLinuxAvatarCompositorHintsApplied=!1,this\.codexLinuxAvatarCompositorHintsApplying=!1,this\.cancelMomentum\(\)/);
+});
+
+test("accepts the upstream native avatar input-shape policy", () => {
+  const source = [
+    "let l=require(`electron`);var IOe=`/avatar-overlay`;",
+    "var QOe=class{supportsInputShape=r.x();window=null;mousePassthroughMode=`disabled`;inputShape=null;pointerInteractive=!1;",
+    "setInputShape(e,t){if(!this.supportsInputShape)return;let n=this.window;n==null||n.isDestroyed()||n.webContents.id!==e||(this.inputShape=t,this.applyPointerInteractivityPolicy())}",
+    "isInputShapeSupported(){return this.supportsInputShape}",
+    "async createWindow(){let e=await this.windowManager.createWindow({title:l.app.getName(),width:356,height:320,appearance:`avatarOverlay`,supportsWindowTiling:!1,focusable:!1,show:!1,initialRoute:IOe});return this.window=e,this.mousePassthroughMode=`disabled`,this.inputShape=null,e.setAlwaysOnTop(!0,`floating`),e}",
+    "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughMode=`disabled`;return}let t=this.applyInputShape(e);if(!e.isVisible()){this.mousePassthroughMode!==`without-forwarding`&&(e.setIgnoreMouseEvents(!0,{forward:!1}),this.mousePassthroughMode=`without-forwarding`);return}if(t)return;let n=this.pointerInteractive?`disabled`:`forwarding`;if(this.mousePassthroughMode!==n){if(this.mousePassthroughMode=n,n===`forwarding`){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}",
+    "applyInputShape(e){if(!this.supportsInputShape||this.inputShape==null)return!1;this.mousePassthroughMode!==`disabled`&&(e.setIgnoreMouseEvents(!1),this.mousePassthroughMode=`disabled`);let t=r.P(e,this.inputShape.map(({height:e,left:t,top:n,width:r})=>({height:e,width:r,x:t,y:n})));return t&&(this.mousePassthroughMode=`disabled`),t}",
+    "};",
+  ].join("");
+  const { value: patched, warnings } = captureWarns(() =>
+    applyPatchTwice(applyLinuxAvatarOverlayMousePassthroughPatch, source),
+  );
+
+  assert.deepEqual(warnings, []);
+  assert.match(patched, /title:process\.platform===`linux`\?`Codex Pet Overlay`:l\.app\.getName\(\)/);
+  assert.match(patched, /appearance:`avatarOverlay`,lockTitle:process\.platform===`linux`,/);
+  assert.match(patched, /focusable:process\.platform===`linux`\?!0:!1/);
+  assert.match(patched, /e\.setSkipTaskbar\(!0\)/);
+  assert.match(patched, /applyInputShape\(e\)/);
+  assert.doesNotMatch(patched, /codexLinuxAvatarPassthroughRecoveryTimer/);
 });
 
 test("keeps Linux avatar overlay above the app while reply inputs are focusable", () => {
@@ -5798,6 +5834,20 @@ test("patches the Electron 42 Computer Use gate with descriptor metadata fields"
   assert.match(patched, /isAvailable:\(\{features:e,platform:t\}\)=>t===`win32`&&e\.computerUse/);
 });
 
+test("patches the Electron 42 spread Computer Use descriptor", () => {
+  const source = [
+    "var names={computerUse:`computer-use`};",
+    "var gates=[{...n.Os.computerUse,autoInstallOptOutKey:n.js(n.Os.computerUse.name),isAvailable:({features:e,platform:t})=>t===`darwin`&&e.computerUse,migrate:Us},{...n.Os.computerUse,autoInstallOptOutKey:n.js(n.Os.computerUse.name),isAvailable:({features:e,platform:t})=>t===`win32`&&e.computerUse}];",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxComputerUsePluginGatePatch, source);
+
+  assert.match(patched, /\.\.\.n\.Os\.computerUse,installWhenMissing:!0,autoInstallOptOutKey/);
+  assert.match(patched, /\(t===`darwin`\|\|t===`linux`\)&&e\.computerUse,migrate:Us/);
+  assert.match(patched, /t===`win32`&&e\.computerUse/);
+  assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
+});
+
 test("auto-installs the current Chrome plugin gate shape", () => {
   const patched = applyPatchTwice(
     applyLinuxChromePluginAutoInstallPatch,
@@ -5813,6 +5863,19 @@ test("auto-installs the current Chrome plugin gate shape", () => {
   assert.equal((patched.match(/installWhenMissing:!0,name:ut/g) || []).length, 1);
   assert.equal((patched.match(/installWhenMissing:!0,name:dt/g) || []).length, 0);
   assert.equal((patched.match(/installWhenMissing:!0,name:xt/g) || []).length, 0);
+});
+
+test("auto-installs the Electron 42 spread Chrome descriptor", () => {
+  const source = [
+    "var chromeName=`chrome`;",
+    "var gates=[{...n.Os.chromeDev,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,env:t,features:n})=>s.u(e,t)&&n.externalBrowserUseAllowed},{...n.Os.chrome,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,features:t})=>t.externalBrowserUseAllowed&&s.f(e)}];",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxChromePluginAutoInstallPatch, source);
+
+  assert.match(patched, /\.\.\.n\.Os\.chrome,installWhenMissing:!0,syncInstallStateWithChromeExtension:!0/);
+  assert.doesNotMatch(patched, /\.\.\.n\.Os\.chromeDev,installWhenMissing:!0/);
+  assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 
 test("uses Linux managed runtime paths for Chrome native host sync", () => {
@@ -6270,6 +6333,15 @@ test("enables Browser Use availability on Linux when only the Statsig gate is di
   assert.match(patched, /featureName:`browser_use`/);
 });
 
+test("enables current Browser Use availability with the capability field", () => {
+  const source =
+    "function pIr(e){let s=vx(`410262010`),c={featureName:`browser_use`},l=RFr(c),o=!0,f=l.enabled&&!l.isLoading,p=l.isLoading,m=!1,h=mIr({isBrowserAgentGateEnabled:s,isBrowserEnabled:o,isBrowserUseEnabled:f,isLoading:p,runCodexInWsl:m,windowType:`electron`});return h}";
+  const patched = applyPatchTwice(applyLinuxBrowserUseAvailabilityPatch, source);
+
+  assert.match(patched, /isBrowserAgentGateEnabled:!0,isBrowserEnabled:o/);
+  assert.match(patched, /isBrowserUseEnabled:f/);
+});
+
 test("enables external Browser Use availability on Linux without the upstream rollout flag", () => {
   const source =
     "function m(e){let t=(0,l.c)(5),{hostId:n,windowType:r}=e,a=r===void 0?`electron`:r,o=i(`410065390`),s;t[0]===n?s=t[1]:(s={featureName:`browser_use_external`,hostId:n},t[0]=n,t[1]=s);let c=u(s),d=a===`chrome-extension`||o&&c.enabled&&!c.isLoading,f=a===`chrome-extension`?!1:c.isLoading,p;return t[2]!==d||t[3]!==f?(p={allowed:d,available:d,isLoading:f},t[2]=d,t[3]=f,t[4]=p):p=t[4],p}";
@@ -6288,6 +6360,17 @@ test("enables external Browser Use availability on Linux without the upstream ro
   assert.match(patched, /i\(`410065390`\)/);
 });
 
+test("enables current external Browser Use status with the WSL field", () => {
+  const source =
+    "let c={featureName:`browser_use_external`},s=vx(`410065390`);function JFr({isExternalBrowserUseFeatureEnabled:e,isExternalBrowserUseFeatureLoading:t,isExternalBrowserUseGateEnabled:n,runCodexInWsl:r,windowType:i}){return i===`chrome-extension`?`available`:t?`loading`:n?e?r?`wsl-disabled`:`available`:`config-requirement-disabled`:`statsig-disabled`}";
+  const patched = applyPatchTwice(applyLinuxBrowserUseExternalAvailabilityPatch, source);
+
+  assert.match(
+    patched,
+    /return i===`chrome-extension`\|\|navigator\.userAgent\.includes\(`Linux`\)\?`available`:/,
+  );
+});
+
 test("keeps already patched external Browser Use availability unchanged", () => {
   const source =
     "function m(e){let t=(0,l.c)(5),{hostId:n,windowType:r}=e,a=r===void 0?`electron`:r,o=i(`410065390`),s;t[0]===n?s=t[1]:(s={featureName:`browser_use_external`,hostId:n},t[0]=n,t[1]=s);let c=u(s),d=a===`chrome-extension`||navigator.userAgent.includes(`Linux`)||o&&c.enabled&&!c.isLoading,f=a===`chrome-extension`||navigator.userAgent.includes(`Linux`)?!1:c.isLoading,p;return p}";
@@ -6300,6 +6383,7 @@ test("external Browser Use availability descriptor matches the current bundle na
 
   assert.match("use-is-plugins-enabled-current.js", descriptor.pattern);
   assert.match("use-in-app-browser-use-availability-B4Bdb14G.js", descriptor.pattern);
+  assert.match("app-initial-DOX-K1rC.js", descriptor.pattern);
 });
 
 test("allows Browser Use non-local navigation on Linux without the upstream rollout flag", () => {
@@ -6693,6 +6777,17 @@ test("auto-approves the latest Browser Use node_repl runtime config builder", ()
   );
 });
 
+test("auto-approves the Electron 42 node_repl config with env_vars", () => {
+  const source =
+    "function Je({nodeReplPath:o,env:f,envVars:n=[]}){return{[`mcp_servers.${Ue}`]:{args:[],command:o,env:f,...n.length===0?{}:{env_vars:Array.from(n)},startup_timeout_sec:120}}}";
+  const patched = applyPatchTwice(applyBrowserUseNodeReplApprovalPatch, source);
+
+  assert.match(
+    patched,
+    /env:f,\.\.\.n\.length===0\?\{\}:\{env_vars:Array\.from\(n\)\},tools:\{js:\{approval_mode:`approve`\}\},startup_timeout_sec:120/,
+  );
+});
+
 test("auto-approves and trusts the current Browser Use node_repl runtime config builder", () => {
   const resourcesRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-current-browser-client-hash-"));
   try {
@@ -6874,6 +6969,15 @@ test("detects Chrome extension installation after upstream minifier renames", ()
     patched,
     /if\(__codexPlatform===`linux`\)\{let __codexChromeCommand=codexLinuxChromeCommand\(\)\?\?__codexDetectChromeCommand\(\);if\(__codexChromeCommand==null\)throw Error\(`Google Chrome, Brave, or Chromium is not installed`\);await __codexRunCommand\(__codexChromeCommand,\[am\(__codexExtensionId\)\]\);return\}/,
   );
+});
+
+test("recognizes upstream native Linux Chrome extension support", () => {
+  const source = [
+    "function tl({platform:o=process.platform,xdgConfigHome:s=process.env.XDG_CONFIG_HOME}){return n.Wo.chrome.linux.installations}",
+    "async function al(){let unsupported=`Opening Chrome extension settings is only supported on macOS, Windows, and Linux`;if(i===`win32`||i===`linux`)return unsupported}",
+  ].join("");
+
+  assert.equal(applyPatchTwice(applyLinuxChromeExtensionStatusPatch, source), source);
 });
 
 test("opens Linux Chrome extension settings without command helper TDZ", async () => {

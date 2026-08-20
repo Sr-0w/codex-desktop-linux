@@ -90,6 +90,33 @@ function findAvatarOverlayMethod(source, signatureRegex) {
   return findAvatarMethodAfter(source, signatureRegex, overlayClass.start, overlayClass.end);
 }
 
+function hasUpstreamAvatarInputShapePolicy(source) {
+  const overlayClass = findAvatarOverlayClass(source);
+  if (overlayClass == null) {
+    return false;
+  }
+  const text = overlayClass.text;
+  const interactivityMethod = findAvatarMethod(
+    text,
+    /applyPointerInteractivityPolicy\(\)\{/,
+  );
+  const inputShapeMethod = findAvatarMethod(text, /applyInputShape\([^)]*\)\{/);
+  return (
+    interactivityMethod != null &&
+    inputShapeMethod != null &&
+    text.includes("supportsInputShape") &&
+    text.includes("setInputShape(") &&
+    text.includes("isInputShapeSupported(){return this.supportsInputShape}") &&
+    interactivityMethod.text.includes("this.applyInputShape(") &&
+    interactivityMethod.text.includes("setIgnoreMouseEvents(!0,{forward:!1})") &&
+    interactivityMethod.text.includes("setIgnoreMouseEvents(!0,{forward:!0})") &&
+    interactivityMethod.text.includes("setIgnoreMouseEvents(!1)") &&
+    inputShapeMethod.text.includes("this.supportsInputShape") &&
+    inputShapeMethod.text.includes("this.inputShape") &&
+    inputShapeMethod.text.includes(".map(({height:")
+  );
+}
+
 function replaceAvatarMethod(source, signatureRegex, replacement) {
   const method = findAvatarMethod(source, signatureRegex);
   if (method == null || method.text === replacement) {
@@ -267,8 +294,11 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
   const interactivityMethodPatch = interactivityPatch.endsWith(refreshCursorMethodPrefix)
     ? interactivityPatch.slice(0, -refreshCursorMethodPrefix.length)
     : interactivityPatch;
+  const usesUpstreamInputShapePolicy = hasUpstreamAvatarInputShapePolicy(patchedSource);
 
-  if (!patchedSource.includes("codexLinuxIsI3Session")) {
+  if (usesUpstreamInputShapePolicy) {
+    recordStrategy("avatar-interactivity", "upstream-input-shape");
+  } else if (!patchedSource.includes("codexLinuxIsI3Session")) {
     if (patchedSource.includes(interactivityNeedle)) {
       recordStrategy("avatar-interactivity", "upstream");
       patchedSource = patchedSource.replace(interactivityNeedle, interactivityPatch);
@@ -334,6 +364,13 @@ function applyLinuxAvatarOverlayMousePassthroughPatch(currentSource) {
         "WARN: Could not apply the Linux avatar overlay window policy — KWin overlay matching may be unavailable",
       );
     }
+  }
+
+  // Current upstream bundles expose a renderer-fed native input-shape policy.
+  // It supersedes the polling fallback below and already refreshes passthrough
+  // on visibility, pointer, layout, and input-shape changes.
+  if (usesUpstreamInputShapePolicy) {
+    return patchedSource;
   }
 
   const startDragMethod = findAvatarOverlayMethod(

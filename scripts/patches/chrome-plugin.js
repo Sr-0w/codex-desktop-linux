@@ -46,6 +46,24 @@ function applyLinuxChromePluginAutoInstallPatch(currentSource) {
   }
 
   const chromeNameVar = currentSource.match(/([A-Za-z_$][\w$]*)=(?:`chrome`|"chrome"|'chrome')/)?.[1] ?? null;
+  const spreadChromeGateRegex =
+    /\{\.\.\.([A-Za-z_$][\w$]*\.Os\.chrome),((?!installWhenMissing:!0,)[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?)\}/g;
+  let spreadChromeGatePatched = false;
+  const spreadChromePatchedSource = currentSource.replace(
+    spreadChromeGateRegex,
+    (_match, descriptorExpr, remainingFields) => {
+      spreadChromeGatePatched = true;
+      return `{...${descriptorExpr},installWhenMissing:!0,${remainingFields}}`;
+    },
+  );
+  if (spreadChromeGatePatched) {
+    return spreadChromePatchedSource;
+  }
+  if (
+    /\{\.\.\.[A-Za-z_$][\w$]*\.Os\.chrome,installWhenMissing:!0,[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?\}/.test(currentSource)
+  ) {
+    return currentSource;
+  }
   const nameExpressionPattern = String.raw`(?:[A-Za-z_$][\w$]*|` +
     String.raw`\`chrome\`|"chrome"|'chrome')`;
   const gateRegex =

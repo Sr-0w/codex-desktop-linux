@@ -235,9 +235,9 @@ function applyLinuxExplicitIpcQuitPatch(currentSource) {
   const quitAppNeedle = "if(o.type===`quit-app`){n.app.quit();return}";
   const quitAppPatch = `if(o.type===\`quit-app\`){${quitMarkerExpression}n.app.quit();return}`;
   const quitAppRegex =
-    /if\(([A-Za-z_$][\w$]*)\.type===`quit-app`\)\{([A-Za-z_$][\w$]*)\.app\.quit\(\);return\}/g;
+    /if\(([A-Za-z_$][\w$]*)\.type===`quit-app`\)\{([^{}]*?)([A-Za-z_$][\w$]*)\.app\.quit\(\);return\}/g;
   const patchedQuitAppRegex =
-    /if\([A-Za-z_$][\w$]*\.type===`quit-app`\)\{typeof codexLinuxPrepareForExplicitQuit===`function`\?codexLinuxPrepareForExplicitQuit\(\):typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress\(\),[A-Za-z_$][\w$]*\.app\.quit\(\);return\}/;
+    /if\([A-Za-z_$][\w$]*\.type===`quit-app`\)\{typeof codexLinuxPrepareForExplicitQuit===`function`\?codexLinuxPrepareForExplicitQuit\(\):typeof codexLinuxMarkQuitInProgress===`function`&&codexLinuxMarkQuitInProgress\(\),[^{}]*?[A-Za-z_$][\w$]*\.app\.quit\(\);return\}/;
   let patchedAny = false;
   if (patchedSource.includes(quitAppNeedle)) {
     patchedAny = true;
@@ -245,9 +245,15 @@ function applyLinuxExplicitIpcQuitPatch(currentSource) {
   }
   patchedSource = patchedSource.replace(
     quitAppRegex,
-    (_match, messageVar, electronVar) => {
+    (match, messageVar, preQuitExpression, electronVar) => {
+      if (
+        preQuitExpression.includes("codexLinuxPrepareForExplicitQuit") ||
+        preQuitExpression.includes("codexLinuxMarkQuitInProgress")
+      ) {
+        return match;
+      }
       patchedAny = true;
-      return `if(${messageVar}.type===\`quit-app\`){${quitMarkerExpression}${electronVar}.app.quit();return}`;
+      return `if(${messageVar}.type===\`quit-app\`){${quitMarkerExpression}${preQuitExpression}${electronVar}.app.quit();return}`;
     },
   );
   if (!patchedAny && !patchedQuitAppRegex.test(patchedSource) && patchedSource.includes("type===`quit-app`")) {
