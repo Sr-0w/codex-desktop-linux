@@ -2715,6 +2715,11 @@ test_upstream_build_app_workflow_tracks_dmg_metadata() {
     assert_file_exists "$workflow"
     assert_contains "$workflow" 'name: Upstream Build App'
     assert_contains "$workflow" 'UPSTREAM_DMG_URL: https://persistent.oaistatic.com/codex-app-prod/Codex.dmg'
+    assert_contains "$workflow" 'DMG_CACHE_SCHEMA_VERSION: v2'
+    assert_contains "$workflow" 'appcast-x64.xml'
+    assert_contains "$workflow" 'codex-linux-version=${appcast_version}'
+    assert_contains "$workflow" 'UPSTREAM_DMG_DOWNLOAD_URL: ${{ steps.upstream-metadata.outputs.download_url }}'
+    assert_contains "$workflow" "Cache-Control: no-cache"
     assert_contains "$workflow" 'actions/cache@v4'
     assert_contains "$workflow" 'path: /tmp/codex-upstream-ci/Codex.dmg'
     assert_contains "$workflow" 'Last-Modified'
@@ -2735,6 +2740,10 @@ test_release_artifacts_workflow_uses_short_asset_names() {
     local workflow="$REPO_DIR/.github/workflows/release-artifacts.yml"
 
     assert_file_exists "$workflow"
+    assert_contains "$workflow" 'DMG_CACHE_SCHEMA_VERSION: v2'
+    assert_contains "$workflow" 'appcast-x64.xml'
+    assert_contains "$workflow" 'codex-linux-version=${appcast_version}'
+    assert_contains "$workflow" 'UPSTREAM_DMG_DOWNLOAD_URL: ${{ steps.upstream-metadata.outputs.download_url }}'
     assert_contains "$workflow" 'runner: ubuntu-24.04-arm'
     assert_contains "$workflow" 'release_arch: aarch64'
     assert_contains "$workflow" 'deb_arch: arm64'

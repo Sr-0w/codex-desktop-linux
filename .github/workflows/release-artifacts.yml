@@ -39,7 +39,7 @@ env:
   UPSTREAM_DMG_PATH: /tmp/codex-upstream-ci/Codex.dmg
   RELEASE_DMG_METADATA_PATH: /tmp/codex-upstream-ci/upstream-dmg-metadata.json
   RELEASE_PATCH_REPORT_PATH: /tmp/codex-upstream-ci/patch-report.json
-  DMG_CACHE_SCHEMA_VERSION: v1
+  DMG_CACHE_SCHEMA_VERSION: v2
 
 jobs:
   metadata:
@@ -186,7 +186,20 @@ jobs:
           headers_file="$(mktemp)"
           trap 'rm -f "$headers_file"' EXIT
 
-          curl -fsSLI "$UPSTREAM_DMG_URL" > "$headers_file"
+          appcast_version="$(
+            curl -fsSL --retry 3 \
+              https://persistent.oaistatic.com/codex-app-prod/appcast-x64.xml \
+              | python3 -c 'import re, sys; xml=sys.stdin.read(); match=re.search(r"<sparkle:shortVersionString>([^<]+)", xml); print(match.group(1).strip() if match else "")'
+          )"
+          download_url="$UPSTREAM_DMG_URL"
+          if [ -n "$appcast_version" ] && [ "$UPSTREAM_DMG_URL" = "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" ]; then
+            download_url="${UPSTREAM_DMG_URL}?codex-linux-version=${appcast_version}"
+          fi
+
+          curl -fsSLI \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            "$download_url" > "$headers_file"
           last_modified="$(awk 'tolower($0) ~ /^last-modified:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); print; exit}' "$headers_file")"
           etag="$(awk 'tolower($0) ~ /^etag:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); gsub(/"/,""); print; exit}' "$headers_file")"
           content_length="$(awk 'tolower($0) ~ /^content-length:/ {sub(/\r$/,""); sub(/^[^:]+: /,""); print; exit}' "$headers_file")"
@@ -194,9 +207,11 @@ jobs:
           last_modified="${last_modified:-unknown}"
           etag="${etag:-no-etag}"
           content_length="${content_length:-unknown}"
-          cache_segment="$(printf '%s|%s|%s\n' "$last_modified" "$etag" "$content_length" | sha256sum | cut -d' ' -f1)"
+          cache_segment="$(printf '%s|%s|%s|%s\n' "$appcast_version" "$last_modified" "$etag" "$content_length" | sha256sum | cut -d' ' -f1)"
 
           {
+            echo "appcast_version=$appcast_version"
+            echo "download_url=$download_url"
             echo "last_modified=$last_modified"
             echo "etag=$etag"
             echo "content_length=$content_length"
@@ -213,11 +228,15 @@ jobs:
       - name: Download upstream DMG
         if: steps.dmg-cache.outputs.cache-hit != 'true'
         env:
-          UPSTREAM_DMG_URL: ${{ needs.metadata.outputs.upstream_dmg_url }}
+          UPSTREAM_DMG_DOWNLOAD_URL: ${{ steps.upstream-metadata.outputs.download_url }}
         run: |
           set -euo pipefail
           mkdir -p "$(dirname "$UPSTREAM_DMG_PATH")"
-          curl -fL --retry 3 -o "$UPSTREAM_DMG_PATH" "$UPSTREAM_DMG_URL"
+          curl -fL --retry 3 \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            -o "$UPSTREAM_DMG_PATH" \
+            "$UPSTREAM_DMG_DOWNLOAD_URL"
 
       - name: Record upstream DMG fingerprint
         env:
@@ -234,6 +253,8 @@ jobs:
           cat > "$RELEASE_DMG_METADATA_PATH" <<JSON
           {
             "url": "$UPSTREAM_DMG_URL",
+            "download_url": "${{ steps.upstream-metadata.outputs.download_url }}",
+            "appcast_version": "${{ steps.upstream-metadata.outputs.appcast_version }}",
             "path": "$UPSTREAM_DMG_PATH",
             "last_modified": "${{ steps.upstream-metadata.outputs.last_modified }}",
             "etag": "${{ steps.upstream-metadata.outputs.etag }}",
