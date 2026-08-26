@@ -615,7 +615,9 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
     if (!patchedSource.includes("state:`disabled`")) {
       return currentSource;
     }
-    const bootstrapMatch = patchedSource.match(/var [A-Za-z_$][\w$]*=\{enabled:!1,running:!1,state:`disabled`\};/);
+    const bootstrapMatch = patchedSource.match(
+      /var [A-Za-z_$][\w$]*=\{enabled:!1,running:!1,state:`disabled`\}(?=[,;])/,
+    );
     if (bootstrapMatch == null) {
       console.warn("WARN: Could not find current updater bridge insertion point - skipping Linux updater bridge patch");
       return currentSource;

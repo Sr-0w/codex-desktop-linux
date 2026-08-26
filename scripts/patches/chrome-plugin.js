@@ -47,7 +47,7 @@ function applyLinuxChromePluginAutoInstallPatch(currentSource) {
 
   const chromeNameVar = currentSource.match(/([A-Za-z_$][\w$]*)=(?:`chrome`|"chrome"|'chrome')/)?.[1] ?? null;
   const spreadChromeGateRegex =
-    /\{\.\.\.([A-Za-z_$][\w$]*\.Os\.chrome),((?!installWhenMissing:!0,)[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?)\}/g;
+    /\{\.\.\.([A-Za-z_$][\w$]*\.(?:Os|Ls)\.chrome),((?!installWhenMissing:!0,)[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?)\}/g;
   let spreadChromeGatePatched = false;
   const spreadChromePatchedSource = currentSource.replace(
     spreadChromeGateRegex,
@@ -60,7 +60,7 @@ function applyLinuxChromePluginAutoInstallPatch(currentSource) {
     return spreadChromePatchedSource;
   }
   if (
-    /\{\.\.\.[A-Za-z_$][\w$]*\.Os\.chrome,installWhenMissing:!0,[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?\}/.test(currentSource)
+    /\{\.\.\.[A-Za-z_$][\w$]*\.(?:Os|Ls)\.chrome,installWhenMissing:!0,[^{}]*?isAvailable:\(\{buildFlavor:[A-Za-z_$][\w$]*,features:[A-Za-z_$][\w$]*\}\)=>[^{}]*?externalBrowserUseAllowed[^{}]*?\}/.test(currentSource)
   ) {
     return currentSource;
   }

@@ -5440,6 +5440,18 @@ test("adds Linux package updater to current bootstrap updater wiring", () => {
   assert.doesNotMatch(patched, /codexLinuxRunUpdateManager\(\[`status`,`--json`\]\)/);
 });
 
+test("adds Linux package updater when disabled state shares a var declaration", () => {
+  const source = currentBootstrapUpdaterBundleFixture().replace(
+    "var rK={enabled:!1,running:!1,state:`disabled`};",
+    "var rK={enabled:!1,running:!1,state:`disabled`},LPe=3e4;",
+  );
+  const patched = applyPatchTwice(applyLinuxAppUpdaterBridgePatch, source);
+
+  assert.match(patched, /function codexLinuxCreatePackageUpdateManager\(/);
+  assert.match(patched, /var rK=\{enabled:!1,running:!1,state:`disabled`\},LPe=3e4/);
+  assert.match(patched, /codexLinuxPackageUpdateBridge=process\.platform===`linux`/);
+});
+
 test("adds Linux package updater to current bootstrap updater wiring after callback drift", () => {
   const patched = applyPatchTwice(
     applyLinuxAppUpdaterBridgePatch,
@@ -5848,6 +5860,20 @@ test("patches the Electron 42 spread Computer Use descriptor", () => {
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 
+test("patches the current Ls spread Computer Use descriptor", () => {
+  const source = [
+    "var names={computerUse:`computer-use`};",
+    "var gates=[{...n.Ls.computerUse,autoInstallOptOutKey:n.Bs(n.Ls.computerUse.name),isAvailable:({features:e,platform:t})=>t===`darwin`&&e.computerUse,migrate:Fs},{...n.Ls.computerUse,autoInstallOptOutKey:n.Bs(n.Ls.computerUse.name),isAvailable:({features:e,platform:t})=>t===`win32`&&e.computerUse}];",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxComputerUsePluginGatePatch, source);
+
+  assert.match(patched, /\.\.\.n\.Ls\.computerUse,installWhenMissing:!0,autoInstallOptOutKey/);
+  assert.match(patched, /\(t===`darwin`\|\|t===`linux`\)&&e\.computerUse,migrate:Fs/);
+  assert.match(patched, /t===`win32`&&e\.computerUse/);
+  assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
+});
+
 test("auto-installs the current Chrome plugin gate shape", () => {
   const patched = applyPatchTwice(
     applyLinuxChromePluginAutoInstallPatch,
@@ -5875,6 +5901,19 @@ test("auto-installs the Electron 42 spread Chrome descriptor", () => {
 
   assert.match(patched, /\.\.\.n\.Os\.chrome,installWhenMissing:!0,syncInstallStateWithChromeExtension:!0/);
   assert.doesNotMatch(patched, /\.\.\.n\.Os\.chromeDev,installWhenMissing:!0/);
+  assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
+});
+
+test("auto-installs the current Ls spread Chrome descriptor", () => {
+  const source = [
+    "var chromeName=`chrome`;",
+    "var gates=[{...n.Ls.chromeDev,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,env:t,features:n})=>s.d(e,t)&&n.externalBrowserUseAllowed},{...n.Ls.chrome,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,features:t})=>t.externalBrowserUseAllowed&&s.p(e)}];",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxChromePluginAutoInstallPatch, source);
+
+  assert.match(patched, /\.\.\.n\.Ls\.chrome,installWhenMissing:!0,syncInstallStateWithChromeExtension:!0/);
+  assert.doesNotMatch(patched, /\.\.\.n\.Ls\.chromeDev,installWhenMissing:!0/);
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 
@@ -6149,7 +6188,7 @@ test("handles literal Chrome plugin gate names", () => {
   assert.doesNotMatch(patched, /installWhenMissing:!0,name:'chrome-internal'/);
 });
 
-test("reports missing Chrome plugin auto-install gate as optional drift", () => {
+test("reports missing Chrome plugin auto-install gate as required drift", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-patch-report-missing-chrome-"));
   try {
     const buildDir = path.join(tempRoot, ".vite", "build");
@@ -6160,16 +6199,16 @@ test("reports missing Chrome plugin auto-install gate as optional drift", () => 
     captureWarns(() => patchExtractedApp(tempRoot, { report }));
 
     const pluginGatePatch = report.patches.find((patch) => patch.name === "linux-chrome-plugin-auto-install");
-    assert.equal(pluginGatePatch.status, "skipped-optional");
+    assert.equal(pluginGatePatch.status, "failed-required");
     assert.match(pluginGatePatch.reason, /Could not find Chrome plugin gate literal/);
     assert.ok(
-      !validateReport(report, "upstream-build").some((failure) =>
+      validateReport(report, "upstream-build").some((failure) =>
         failure.startsWith("linux-chrome-plugin-auto-install:"),
       ),
-      "browser integration drift must not fail the build",
+      "browser integration drift must fail the upstream build",
     );
     assert.ok(
-      optionalDriftFromReport(report).some((drift) => drift.name === "linux-chrome-plugin-auto-install"),
+      !optionalDriftFromReport(report).some((drift) => drift.name === "linux-chrome-plugin-auto-install"),
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -6196,7 +6235,7 @@ test("fails hard when the Computer Use gate is recognizable but unpatchable", ()
   );
 });
 
-test("reports missing Computer Use plugin gate as optional drift", () => {
+test("reports missing Computer Use plugin gate as required drift", () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-patch-report-missing-computer-use-"));
   try {
     const buildDir = path.join(tempRoot, ".vite", "build");
@@ -6207,16 +6246,16 @@ test("reports missing Computer Use plugin gate as optional drift", () => {
     captureWarns(() => patchExtractedApp(tempRoot, { report }));
 
     const pluginGatePatch = report.patches.find((patch) => patch.name === "linux-computer-use-plugin-gate");
-    assert.equal(pluginGatePatch.status, "skipped-optional");
+    assert.equal(pluginGatePatch.status, "failed-required");
     assert.match(pluginGatePatch.reason, /Could not find Computer Use plugin gate literal/);
     assert.ok(
-      !validateReport(report, "upstream-build").some((failure) =>
+      validateReport(report, "upstream-build").some((failure) =>
         failure.startsWith("linux-computer-use-plugin-gate:"),
       ),
-      "Computer Use is a feature — its drift must not fail the build",
+      "Computer Use platform glue drift must fail the upstream build",
     );
     assert.ok(
-      optionalDriftFromReport(report).some((drift) => drift.name === "linux-computer-use-plugin-gate"),
+      !optionalDriftFromReport(report).some((drift) => drift.name === "linux-computer-use-plugin-gate"),
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -7536,8 +7575,8 @@ test("patchExtractedApp records a structured patch report", () => {
     assert.equal(report.iconAsset, "app-test.png");
     assert.equal(report.desktopName, "codex-desktop.desktop");
     assert.deepEqual(report.enabledFeatures, enabledLinuxFeatureIds());
-    // Browser/Computer Use integration drift is optional, but window-shell
-    // drift is critical: this partial fixture lacks the titlebar shape.
+    // Browser/Computer Use platform glue and window-shell drift are critical.
+    // This partial fixture intentionally lacks all of those upstream shapes.
     assert.ok(
       report.patches.some(
         (patch) =>
@@ -7552,7 +7591,9 @@ test("patchExtractedApp records a structured patch report", () => {
       criticalFailuresFromReport(report).some((failure) => failure.name === "linux-native-titlebar"),
     );
     assert.ok(
-      optionalDriftFromReport(report).some((drift) => drift.name === "linux-chrome-plugin-auto-install"),
+      criticalFailuresFromReport(report).some(
+        (failure) => failure.name === "linux-chrome-plugin-auto-install",
+      ),
     );
     assert.ok(report.patches.some((patch) => patch.name === "keybinds-settings" && patch.status === "skipped-optional"));
   } finally {

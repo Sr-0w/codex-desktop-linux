@@ -19,7 +19,7 @@ module.exports = [
     id: "linux-computer-use-plugin-gate",
     phase: "main-bundle",
     order: 140,
-    ciPolicy: "optional",
+    ciPolicy: "required-upstream",
     apply: applyLinuxComputerUsePluginGatePatch,
   },
   {

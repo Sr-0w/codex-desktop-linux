@@ -8,7 +8,7 @@ module.exports = [
     id: "linux-app-updater-bridge",
     phase: "extracted-app",
     order: 2000,
-    ciPolicy: "optional",
+    ciPolicy: "required-upstream",
     apply: (extractedDir) => patchLinuxAppUpdaterBridge(extractedDir),
     status: (result, warnings) => {
       if (result?.matched === 0) {

@@ -13,7 +13,7 @@ module.exports = [
     id: "linux-chrome-plugin-auto-install",
     phase: "main-bundle",
     order: 150,
-    ciPolicy: "optional",
+    ciPolicy: "required-upstream",
     apply: applyLinuxChromePluginAutoInstallPatch,
   },
   {
