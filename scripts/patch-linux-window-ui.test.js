@@ -5860,16 +5860,16 @@ test("patches the Electron 42 spread Computer Use descriptor", () => {
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 
-test("patches the current Ls spread Computer Use descriptor", () => {
+test("patches a renamed spread Computer Use descriptor namespace", () => {
   const source = [
     "var names={computerUse:`computer-use`};",
-    "var gates=[{...n.Ls.computerUse,autoInstallOptOutKey:n.Bs(n.Ls.computerUse.name),isAvailable:({features:e,platform:t})=>t===`darwin`&&e.computerUse,migrate:Fs},{...n.Ls.computerUse,autoInstallOptOutKey:n.Bs(n.Ls.computerUse.name),isAvailable:({features:e,platform:t})=>t===`win32`&&e.computerUse}];",
+    "var gates=[{...n.Rs.computerUse,autoInstallOptOutKey:n.Vs(n.Rs.computerUse.name),isAvailable:({features:e,platform:t})=>t===`darwin`&&e.computerUse,migrate:Ps},{...n.Rs.computerUse,autoInstallOptOutKey:n.Vs(n.Rs.computerUse.name),isAvailable:({features:e,platform:t})=>t===`win32`&&e.computerUse}];",
   ].join("");
 
   const patched = applyPatchTwice(applyLinuxComputerUsePluginGatePatch, source);
 
-  assert.match(patched, /\.\.\.n\.Ls\.computerUse,installWhenMissing:!0,autoInstallOptOutKey/);
-  assert.match(patched, /\(t===`darwin`\|\|t===`linux`\)&&e\.computerUse,migrate:Fs/);
+  assert.match(patched, /\.\.\.n\.Rs\.computerUse,installWhenMissing:!0,autoInstallOptOutKey/);
+  assert.match(patched, /\(t===`darwin`\|\|t===`linux`\)&&e\.computerUse,migrate:Ps/);
   assert.match(patched, /t===`win32`&&e\.computerUse/);
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
@@ -5904,16 +5904,16 @@ test("auto-installs the Electron 42 spread Chrome descriptor", () => {
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 
-test("auto-installs the current Ls spread Chrome descriptor", () => {
+test("auto-installs a renamed spread Chrome descriptor namespace", () => {
   const source = [
     "var chromeName=`chrome`;",
-    "var gates=[{...n.Ls.chromeDev,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,env:t,features:n})=>s.d(e,t)&&n.externalBrowserUseAllowed},{...n.Ls.chrome,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,features:t})=>t.externalBrowserUseAllowed&&s.p(e)}];",
+    "var gates=[{...n.Rs.chromeDev,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,env:t,features:n})=>s.d(e,t)&&n.externalBrowserUseAllowed},{...n.Rs.chrome,syncInstallStateWithChromeExtension:!0,isAvailable:({buildFlavor:e,features:t})=>t.externalBrowserUseAllowed&&s.p(e)}];",
   ].join("");
 
   const patched = applyPatchTwice(applyLinuxChromePluginAutoInstallPatch, source);
 
-  assert.match(patched, /\.\.\.n\.Ls\.chrome,installWhenMissing:!0,syncInstallStateWithChromeExtension:!0/);
-  assert.doesNotMatch(patched, /\.\.\.n\.Ls\.chromeDev,installWhenMissing:!0/);
+  assert.match(patched, /\.\.\.n\.Rs\.chrome,installWhenMissing:!0,syncInstallStateWithChromeExtension:!0/);
+  assert.doesNotMatch(patched, /\.\.\.n\.Rs\.chromeDev,installWhenMissing:!0/);
   assert.equal((patched.match(/installWhenMissing:!0/g) ?? []).length, 1);
 });
 

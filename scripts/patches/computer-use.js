@@ -142,7 +142,7 @@ function applyLinuxComputerUsePluginGatePatch(currentSource) {
 
   const computerUseNameVar = currentSource.match(/([A-Za-z_$][\w$]*)=(?:`computer-use`|"computer-use"|'computer-use')/)?.[1] ?? null;
   const spreadGateRegex =
-    /\{\.\.\.([A-Za-z_$][\w$]*\.(?:Os|Ls)\.computerUse),([^{}]*?)isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\4===`darwin`&&\3\.computerUse,migrate:([A-Za-z_$][\w$]*)\}/g;
+    /\{\.\.\.([A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\.computerUse),([^{}]*?)isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\4===`darwin`&&\3\.computerUse,migrate:([A-Za-z_$][\w$]*)\}/g;
   let spreadGatePatched = false;
   const spreadPatchedSource = currentSource.replace(
     spreadGateRegex,
@@ -158,7 +158,7 @@ function applyLinuxComputerUsePluginGatePatch(currentSource) {
     return spreadPatchedSource;
   }
   if (
-    /\{\.\.\.[A-Za-z_$][\w$]*\.(?:Os|Ls)\.computerUse,installWhenMissing:!0,[^{}]*?isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\(\2===`darwin`\|\|\2===`linux`\)&&\1\.computerUse,migrate:[A-Za-z_$][\w$]*\}/.test(currentSource)
+    /\{\.\.\.[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\.computerUse,installWhenMissing:!0,[^{}]*?isAvailable:\(\{features:([A-Za-z_$][\w$]*),platform:([A-Za-z_$][\w$]*)\}\)=>\(\2===`darwin`\|\|\2===`linux`\)&&\1\.computerUse,migrate:[A-Za-z_$][\w$]*\}/.test(currentSource)
   ) {
     return currentSource;
   }
