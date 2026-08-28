@@ -219,6 +219,10 @@ function applyLinuxOwlFeatureBindingFallbackPatch(currentSource) {
     return currentSource;
   }
 
+  if (currentSource.includes("codexLinuxOwlBinding")) {
+    return currentSource;
+  }
+
   const alreadyPatchedRegex =
     /function [A-Za-z_$][\w$]*\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \1!=`function`\)return \{isOwlFeatureEnabled:\(\)=>!1\};try\{return [A-Za-z_$][\w$]*\.parse\(\1\.call\(process,`electron_common_owl_features`\)\)\}catch\(([A-Za-z_$][\w$]*)\)\{if\(String\(\2\?\.message\?\?\2\)\.includes\(`No such binding was linked`\)\)return \{isOwlFeatureEnabled:\(\)=>!1\};throw \2\}\}/u;
   if (alreadyPatchedRegex.test(currentSource)) {
@@ -229,6 +233,26 @@ function applyLinuxOwlFeatureBindingFallbackPatch(currentSource) {
     /function ([A-Za-z_$][\w$]*)\(\)\{let ([A-Za-z_$][\w$]*)=process\._linkedBinding;if\(typeof \2!=`function`\)throw Error\(`Owl feature binding is unavailable`\);return ([A-Za-z_$][\w$]*)\.parse\(\2\.call\(process,`electron_common_owl_features`\)\)\}/u;
   const match = currentSource.match(loaderRegex);
   if (match == null) {
+    const inlineLoaderRegex =
+      /function ([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*)\)\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\.parse\(([A-Za-z_$][\w$]*)\.parse\(process\._linkedBinding\)\.call\(process,([A-Za-z_$][\w$]*)\)\);try\{return \3\.isOwlFeatureEnabled\(\2\)\}catch\(([A-Za-z_$][\w$]*)\)\{if\(\7 instanceof Error&&\7\.message\.startsWith\(`Unsupported Owl feature:`\)\)return!1;throw \7\}\}/u;
+    const inlineMatch = currentSource.match(inlineLoaderRegex);
+    if (inlineMatch != null) {
+      const [
+        ,
+        fnName,
+        featureVar,
+        owlFeaturesVar,
+        owlSchemaVar,
+        bindingSchemaVar,
+        bindingNameVar,
+        unsupportedErrorVar,
+      ] = inlineMatch;
+      return currentSource.replace(
+        inlineLoaderRegex,
+        `function ${fnName}(${featureVar}){let codexLinuxOwlBinding=process._linkedBinding;if(typeof codexLinuxOwlBinding!=\`function\`)return!1;let ${owlFeaturesVar};try{${owlFeaturesVar}=${owlSchemaVar}.parse(${bindingSchemaVar}.parse(codexLinuxOwlBinding).call(process,${bindingNameVar}))}catch(codexLinuxOwlError){if(String(codexLinuxOwlError?.message??codexLinuxOwlError).includes(\`No such binding was linked\`))return!1;throw codexLinuxOwlError}try{return ${owlFeaturesVar}.isOwlFeatureEnabled(${featureVar})}catch(${unsupportedErrorVar}){if(${unsupportedErrorVar} instanceof Error&&${unsupportedErrorVar}.message.startsWith(\`Unsupported Owl feature:\`))return!1;throw ${unsupportedErrorVar}}}`,
+      );
+    }
+
     // 26.623+ rewrote the loader to natively return null when the binding is
     // unavailable (`process._linkedBinding` missing) and to swallow the
     // "No such binding was linked" error — exactly the Linux fallback this

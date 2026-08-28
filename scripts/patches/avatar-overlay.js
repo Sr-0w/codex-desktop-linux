@@ -106,7 +106,10 @@ function hasUpstreamAvatarInputShapePolicy(source) {
     inputShapeMethod != null &&
     text.includes("supportsInputShape") &&
     text.includes("setInputShape(") &&
-    text.includes("isInputShapeSupported(){return this.supportsInputShape}") &&
+    (
+      text.includes("isInputShapeSupported(){return this.supportsInputShape}") ||
+      /supportsInputShape=[^;]*\.BrowserWindow\.isInputShapeSupported\(\)/.test(text)
+    ) &&
     interactivityMethod.text.includes("this.applyInputShape(") &&
     interactivityMethod.text.includes("setIgnoreMouseEvents(!0,{forward:!1})") &&
     interactivityMethod.text.includes("setIgnoreMouseEvents(!0,{forward:!0})") &&

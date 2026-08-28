@@ -2742,9 +2742,8 @@ test("adds Linux avatar overlay mouse passthrough recovery", () => {
 test("accepts the upstream native avatar input-shape policy", () => {
   const source = [
     "let l=require(`electron`);var IOe=`/avatar-overlay`;",
-    "var QOe=class{supportsInputShape=r.x();window=null;mousePassthroughMode=`disabled`;inputShape=null;pointerInteractive=!1;",
+    "var QOe=class{supportsInputShape=l.BrowserWindow.isInputShapeSupported();window=null;mousePassthroughMode=`disabled`;inputShape=null;pointerInteractive=!1;",
     "setInputShape(e,t){if(!this.supportsInputShape)return;let n=this.window;n==null||n.isDestroyed()||n.webContents.id!==e||(this.inputShape=t,this.applyPointerInteractivityPolicy())}",
-    "isInputShapeSupported(){return this.supportsInputShape}",
     "async createWindow(){let e=await this.windowManager.createWindow({title:l.app.getName(),width:356,height:320,appearance:`avatarOverlay`,supportsWindowTiling:!1,focusable:!1,show:!1,initialRoute:IOe});return this.window=e,this.mousePassthroughMode=`disabled`,this.inputShape=null,e.setAlwaysOnTop(!0,`floating`),e}",
     "applyPointerInteractivityPolicy(){let e=this.window;if(e==null||e.isDestroyed()){this.mousePassthroughMode=`disabled`;return}let t=this.applyInputShape(e);if(!e.isVisible()){this.mousePassthroughMode!==`without-forwarding`&&(e.setIgnoreMouseEvents(!0,{forward:!1}),this.mousePassthroughMode=`without-forwarding`);return}if(t)return;let n=this.pointerInteractive?`disabled`:`forwarding`;if(this.mousePassthroughMode!==n){if(this.mousePassthroughMode=n,n===`forwarding`){e.setIgnoreMouseEvents(!0,{forward:!0});return}e.setIgnoreMouseEvents(!1),this.refreshCursorAtCurrentMousePosition(e)}}",
     "applyInputShape(e){if(!this.supportsInputShape||this.inputShape==null)return!1;this.mousePassthroughMode!==`disabled`&&(e.setIgnoreMouseEvents(!1),this.mousePassthroughMode=`disabled`);let t=r.P(e,this.inputShape.map(({height:e,left:t,top:n,width:r})=>({height:e,width:r,x:t,y:n})));return t&&(this.mousePassthroughMode=`disabled`),t}",
@@ -7399,6 +7398,33 @@ test("preserves real Electron Owl feature binding when available", () => {
 
   assert.equal(sandbox.enabled, true);
   assert.equal(sandbox.disabled, false);
+});
+
+test("falls back for the current inline Electron Owl feature loader", () => {
+  const source =
+    "var ySe=`electron_common_owl_features`,bSe={parse:e=>e},xSe={parse:e=>e};function CSe(e){let t=xSe.parse(bSe.parse(process._linkedBinding).call(process,ySe));try{return t.isOwlFeatureEnabled(e)}catch(e){if(e instanceof Error&&e.message.startsWith(`Unsupported Owl feature:`))return!1;throw e}}";
+
+  const patched = applyPatchTwice(applyLinuxOwlFeatureBindingFallbackPatch, source);
+  assert.match(patched, /codexLinuxOwlBinding=process\._linkedBinding/);
+  assert.match(patched, /No such binding was linked/);
+
+  const missingSandbox = { process: {}, result: null };
+  vm.createContext(missingSandbox);
+  vm.runInContext(`${patched};result=CSe(\`SomeOwlFlag\`);`, missingSandbox);
+  assert.equal(missingSandbox.result, false);
+
+  const presentSandbox = {
+    process: {
+      _linkedBinding(name) {
+        assert.equal(name, "electron_common_owl_features");
+        return { isOwlFeatureEnabled: (feature) => feature === "EnabledOwlFlag" };
+      },
+    },
+    result: null,
+  };
+  vm.createContext(presentSandbox);
+  vm.runInContext(`${patched};result=CSe(\`EnabledOwlFlag\`);`, presentSandbox);
+  assert.equal(presentSandbox.result, true);
 });
 
 test("patches Electron Owl feature binding fallback outside the main bundle", () => {
