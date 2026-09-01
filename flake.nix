@@ -80,11 +80,11 @@
         '';
 
         codexDmg = pkgs.fetchurl {
-          url = "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-x64-26.825.31414.zip";
-          hash = "sha256-3lOfsRsyGFIt12yD1vydYuWOo10fUuqkY0W4Y0i5Unw=";
+          url = "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-x64-26.825.51511.zip";
+          hash = "sha256-Sl/Y1fXCb+PyiXG913aIf+PQ+2LyJe06l1jpYKEYYf0=";
         };
 
-        codexVersion = "26.825.31414";
+        codexVersion = "26.825.51511";
         electronVersion = "42.3.0";
         electronPlatform =
           {
